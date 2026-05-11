@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#1a1a2e">
+<title>展示会メモ</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
+    background: #1a1a2e;
+    color: #f0f0f0;
+    min-height: 100vh;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 0 80px;
+  }
+  header {
+    padding: 20px 20px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.05em; }
+  #count-label {
+    font-size: 13px;
+    color: #a0a0c0;
+    background: rgba(255,255,255,0.07);
+    padding: 4px 12px;
+    border-radius: 20px;
+  }
+
+  /* === スクリーン === */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* トップ画面 */
+  #screen-ready { padding: 32px 20px; text-align: center; }
+  .hero-icon {
+    width: 96px; height: 96px;
+    background: rgba(99,179,237,0.12);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 24px;
+    font-size: 44px;
+  }
+  .ready-desc { font-size: 14px; color: #a0a0c0; margin-bottom: 32px; line-height: 1.8; }
+
+  /* カメラ画面 */
+  #screen-camera { padding: 16px 20px; }
+  #video-wrap {
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 4/3;
+    position: relative;
+    margin-bottom: 16px;
+  }
+  #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  /* 録音画面 */
+  #screen-recording { padding: 16px 20px; }
+  #canvas-wrap {
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 4/3;
+    position: relative;
+    margin-bottom: 16px;
+  }
+  #snapshot { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .rec-badge {
+    position: absolute; top: 12px; right: 12px;
+    background: #e53e3e;
+    color: #fff;
+    font-size: 13px; font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 20px;
+    animation: pulse 1s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  #timer-ring {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    width: 64px; height: 64px;
+  }
+  #timer-ring svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+  #timer-ring circle { fill: none; stroke-width: 4; }
+  .ring-bg { stroke: rgba(255,255,255,0.2); }
+  .ring-fg { stroke: #63b3ed; stroke-linecap: round; stroke-dasharray: 175.9; stroke-dashoffset: 0; transition: stroke-dashoffset 1s linear; }
+  #timer-num {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 22px; font-weight: 700; color: #fff;
+  }
+  .rec-msg { text-align: center; font-size: 14px; color: #a0a0c0; margin-bottom: 8px; }
+  #progress-wrap {
+    height: 4px; background: rgba(255,255,255,0.1);
+    border-radius: 4px; overflow: hidden; margin-bottom: 16px;
+  }
+  #progress-bar {
+    height: 100%; width: 100%; background: #63b3ed;
+    border-radius: 4px; transition: width 1s linear;
+  }
+
+  /* 保存完了画面 */
+  #screen-saved { padding: 40px 20px; text-align: center; }
+  .saved-icon { font-size: 64px; margin-bottom: 16px; }
+  .saved-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+  .saved-sub { font-size: 14px; color: #a0a0c0; }
+
+  /* ボタン */
+  .btn-main {
+    display: block; width: 100%;
+    padding: 18px;
+    font-size: 17px; font-weight: 600;
+    font-family: inherit;
+    letter-spacing: 0.03em;
+    border: none; border-radius: 14px;
+    cursor: pointer;
+    transition: transform 0.1s, opacity 0.1s;
+  }
+  .btn-main:active { transform: scale(0.97); opacity: 0.85; }
+  .btn-blue { background: #63b3ed; color: #1a1a2e; }
+  .btn-red  { background: #e53e3e; color: #fff; }
+
+  /* リスト */
+  #list-area { padding: 0 20px; display: flex; flex-direction: column; gap: 12px; }
+  .list-header { font-size: 13px; color: #a0a0c0; padding: 16px 20px 8px; letter-spacing: 0.05em; }
+  .item-card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 12px;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .item-card img {
+    width: 72px; height: 72px;
+    object-fit: cover;
+    border-radius: 10px; flex-shrink: 0;
+  }
+  .item-info { flex: 1; min-width: 0; }
+  .item-time { font-size: 12px; color: #a0a0c0; margin-bottom: 6px; }
+  .item-info audio { width: 100%; height: 30px; margin-bottom: 8px; }
+  .dl-row { display: flex; gap: 6px; }
+  .btn-dl {
+    flex: 1; padding: 6px 4px;
+    font-size: 12px; font-family: inherit;
+    background: rgba(99,179,237,0.12);
+    color: #63b3ed;
+    border: 1px solid rgba(99,179,237,0.25);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .btn-dl:active { opacity: 0.7; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📷 展示会メモ</h1>
+  <div id="count-label">0件</div>
+</header>
+
+<!-- トップ画面 -->
+<div id="screen-ready" class="screen active">
+  <div class="hero-icon">📷</div>
+  <p class="ready-desc">カメラを起動して<br>撮影＋録音ボタンを押すだけ<br>10秒で自動保存します</p>
+  <button class="btn-main btn-blue" onclick="startCamera()">カメラ起動</button>
+</div>
+
+<!-- カメラ画面 -->
+<div id="screen-camera" class="screen">
+  <div id="video-wrap">
+    <video id="video" autoplay playsinline muted></video>
+  </div>
+  <button class="btn-main btn-red" onclick="shoot()">● 撮影＋録音　スタート</button>
+</div>
+
+<!-- 録音画面 -->
+<div id="screen-recording" class="screen">
+  <div id="canvas-wrap">
+    <canvas id="snapshot"></canvas>
+    <div class="rec-badge">● REC</div>
+    <div id="timer-ring">
+      <svg viewBox="0 0 64 64">
+        <circle class="ring-bg" cx="32" cy="32" r="28"/>
+        <circle class="ring-fg" id="ring-fg" cx="32" cy="32" r="28"/>
+      </svg>
+      <div id="timer-num">10</div>
+    </div>
+  </div>
+  <div id="progress-wrap"><div id="progress-bar"></div></div>
+  <p class="rec-msg">説明を話してください...</p>
+</div>
+
+<!-- 保存完了画面 -->
+<div id="screen-saved" class="screen">
+  <div class="saved-icon">✅</div>
+  <div class="saved-title">保存しました！</div>
+  <div id="saved-sub" class="saved-sub"></div>
+</div>
+
+<!-- 保存リスト -->
+<div class="list-header" id="list-header" style="display:none;">保存した記録</div>
+<div id="list-area"></div>
+
+<script>
+let stream = null, mediaRecorder = null, chunks = [], items = [], timerInterval = null, photoData = null;
+const CIRC = 2 * Math.PI * 28;
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:true});
+    document.getElementById('video').srcObject = stream;
+    showScreen('camera');
+  } catch(e) {
+    alert('カメラとマイクの許可が必要です。\nブラウザの設定で許可してください。');
+  }
+}
+
+function shoot() {
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('snapshot');
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 960;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  photoData = canvas.toDataURL('image/jpeg', 0.88);
+  showScreen('recording');
+
+  const ring = document.getElementById('ring-fg');
+  ring.style.strokeDashoffset = 0;
+  setTimeout(() => { ring.style.transition = 'stroke-dashoffset 10s linear'; ring.style.strokeDashoffset = CIRC; }, 50);
+
+  const bar = document.getElementById('progress-bar');
+  bar.style.transition = 'none'; bar.style.width = '100%';
+  setTimeout(() => { bar.style.transition = 'width 10s linear'; bar.style.width = '0%'; }, 50);
+
+  chunks = [];
+  const audioStream = new MediaStream(stream.getAudioTracks());
+  mediaRecorder = new MediaRecorder(audioStream);
+  mediaRecorder.ondataavailable = e => chunks.push(e.data);
+  mediaRecorder.onstop = saveAndReturn;
+  mediaRecorder.start();
+
+  let sec = 10;
+  document.getElementById('timer-num').textContent = sec;
+  timerInterval = setInterval(() => {
+    sec--;
+    document.getElementById('timer-num').textContent = sec;
+    if (sec <= 0) { clearInterval(timerInterval); mediaRecorder.stop(); }
+  }, 1000);
+}
+
+function saveAndReturn() {
+  const blob = new Blob(chunks, {type:'audio/webm'});
+  const audioUrl = URL.createObjectURL(blob);
+  const now = new Date();
+  const label = (now.getMonth()+1) + '/' + now.getDate() + ' ' +
+    now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  items.unshift({photoData, audioUrl, label, blob});
+
+  document.getElementById('count-label').textContent = items.length + '件';
+  document.getElementById('saved-sub').textContent = '今日の保存：' + items.length + '件';
+  showScreen('saved');
+  renderList();
+
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+
+  setTimeout(() => showScreen('ready'), 1800);
+}
+
+function renderList() {
+  const list = document.getElementById('list-area');
+  document.getElementById('list-header').style.display = 'block';
+  list.innerHTML = '';
+  items.forEach((item, i) => {
+    const div = document.createElement('div');
+    div.className = 'item-card';
+    div.innerHTML = `
+      <img src="${item.photoData}" alt="撮影写真">
+      <div class="item-info">
+        <div class="item-time">${item.label}</div>
+        <audio controls src="${item.audioUrl}"></audio>
+        <div class="dl-row">
+          <button class="btn-dl" onclick="dl(${i},'photo')">↓ 写真</button>
+          <button class="btn-dl" onclick="dl(${i},'audio')">↓ 音声</button>
+        </div>
+      </div>`;
+    list.appendChild(div);
+  });
+}
+
+function dl(i, type) {
+  const a = document.createElement('a');
+  const name = items[i].label.replace(/[/: ]/g,'');
+  if (type === 'photo') { a.href = items[i].photoData; a.download = 'photo_' + name + '.jpg'; }
+  else { a.href = items[i].audioUrl; a.download = 'audio_' + name + '.webm'; }
+  a.click();
+}
+</script>
+</body>
+</html>
