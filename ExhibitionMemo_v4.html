@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>展示会メモ v4</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+      background: #000;
+      color: #f0f0f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #camera-wrap {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    #top-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    }
+    #top-bar h1 { font-size: 15px; font-weight: 600; color: #fff; }
+    #count-label {
+      font-size: 12px;
+      color: #fff;
+      background: rgba(255,255,255,0.2);
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+    #rec-badge {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 5px 18px;
+      border-radius: 20px;
+      background: #e02020;
+      color: #fff;
+      pointer-events: none;
+      display: none;
+    }
+    #count-down {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -30%);
+      font-size: 90px;
+      font-weight: 200;
+      color: #fff;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.9);
+      display: none;
+      pointer-events: none;
+    }
+    #progress {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 5px;
+      background: #f5c500;
+      width: 0%;
+    }
+    #saved-msg {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: #4caf50;
+      font-weight: 500;
+      white-space: nowrap;
+      pointer-events: none;
+      display: none;
+    }
+    /* 警告バナー */
+    #warning-banner {
+      display: none;
+      background: #e02020;
+      color: #fff;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px;
+    }
+    #error-msg {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      color: #ff6b6b;
+      text-align: center;
+      padding: 12px 20px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 10px;
+      display: none;
+    }
+    #bottom-bar {
+      background: #0a0a0a;
+      padding: 14px 24px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 3px solid #f5c500;
+    }
+    #exit-btn {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      border: 2px solid #555;
+      background: #1a1a1a;
+      color: #aaa;
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 2px;
+    }
+    #exit-btn:active { opacity: 0.7; }
+    #rec-btn {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      border: 4px solid #f5c500;
+      background: #1a1a1a;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.1s;
+    }
+    #rec-btn:active { transform: scale(0.91); }
+    #rec-inner {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #e02020;
+      transition: border-radius 0.2s, width 0.2s, height 0.2s;
+    }
+    #rec-btn.recording #rec-inner {
+      border-radius: 8px;
+      width: 30px;
+      height: 30px;
+    }
+    #rec-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    /* まとめて保存ボタン */
+    #save-all-btn {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      border: 2px solid #f5c500;
+      background: #1a1a1a;
+      color: #f5c500;
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 2px;
+    }
+    #save-all-btn:active { opacity: 0.7; }
+    #save-all-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* オーバーレイダイアログ */
+    .dialog {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      padding: 24px;
+    }
+    .dialog.visible { display: flex; }
+    .dialog p {
+      font-size: 16px;
+      color: #fff;
+      text-align: center;
+      line-height: 1.6;
+    }
+    .btn-row { display: flex; gap: 12px; }
+    .dialog button {
+      padding: 12px 28px;
+      border-radius: 10px;
+      border: none;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-cancel { background: #333; color: #fff; }
+    .btn-ok { background: #f5c500; color: #000; }
+    .btn-danger { background: #e02020; color: #fff; }
+
+    /* 保存進捗 */
+    #saving-dialog p { font-size: 15px; color: #fff; text-align: center; }
+    #saving-progress { font-size: 24px; color: #f5c500; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <div id="warning-banner">⚠️ 残りメモリが少なくなっています！まとめて保存してください</div>
+
+  <div id="camera-wrap">
+    <video id="video" autoplay muted playsinline></video>
+    <div id="top-bar">
+      <h1>展示会メモ v4</h1>
+      <span id="count-label">0 クリップ</span>
+    </div>
+    <div id="rec-badge">● REC</div>
+    <div id="count-down">10</div>
+    <div id="progress"></div>
+    <div id="saved-msg">✅ 録画完了</div>
+    <div id="error-msg">カメラの許可が必要です。<br>ブラウザの設定でカメラをONにしてください。</div>
+  </div>
+
+  <div id="bottom-bar">
+    <button id="exit-btn">⏹<br>終了</button>
+    <button id="rec-btn" disabled><div id="rec-inner"></div></button>
+    <button id="save-all-btn" disabled>💾<br>保存</button>
+  </div>
+
+  <!-- 終了確認 -->
+  <div id="exit-dialog" class="dialog">
+    <p>終了しますか？<br><span id="unsaved-note" style="color:#f5c500;font-size:13px;"></span></p>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeDialog('exit-dialog')">戻る</button>
+      <button class="btn-danger" onclick="doExit()">終了する</button>
+    </div>
+  </div>
+
+  <!-- まとめて保存確認 -->
+  <div id="saveall-dialog" class="dialog">
+    <p id="saveall-msg">クリップをまとめて保存します。<br>保存後も撮影を続けられます。</p>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeDialog('saveall-dialog')">キャンセル</button>
+      <button class="btn-ok" onclick="doSaveAll()">保存する</button>
+    </div>
+  </div>
+
+  <!-- 保存中 -->
+  <div id="saving-dialog" class="dialog">
+    <p>保存中...</p>
+    <div id="saving-progress">0 / 0</div>
+  </div>
+
+  <script>
+    let stream, mediaRecorder, chunks = [], clipCount = 0, timerInterval;
+    let savedClips = []; // {blob, filename} の配列
+
+    const videoEl       = document.getElementById('video');
+    const recBtn        = document.getElementById('rec-btn');
+    const recBadge      = document.getElementById('rec-badge');
+    const countDown     = document.getElementById('count-down');
+    const progressEl    = document.getElementById('progress');
+    const savedMsg      = document.getElementById('saved-msg');
+    const countLabel    = document.getElementById('count-label');
+    const errorMsg      = document.getElementById('error-msg');
+    const warningBanner = document.getElementById('warning-banner');
+    const saveAllBtn    = document.getElementById('save-all-btn');
+    const exitBtn       = document.getElementById('exit-btn');
+
+    function pad(n) { return String(n).padStart(2,'0'); }
+    function getTimestamp() {
+      const d = new Date();
+      return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    }
+    function getMimeType() {
+      const types = ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+      for (const t of types) { if (MediaRecorder.isTypeSupported(t)) return t; }
+      return '';
+    }
+    function getExt(mimeType) { return mimeType.includes('mp4') ? 'mp4' : 'webm'; }
+
+    function openDialog(id) { document.getElementById(id).classList.add('visible'); }
+    function closeDialog(id) { document.getElementById(id).classList.remove('visible'); }
+
+    async function init() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: true
+        });
+        videoEl.srcObject = stream;
+        // カメラが止まらないようにkeepする
+        videoEl.play().catch(()=>{});
+        recBtn.disabled = false;
+      } catch(e) {
+        errorMsg.style.display = 'block';
+      }
+    }
+
+    function startRec() {
+      chunks = [];
+      const mimeType = getMimeType();
+      const options = mimeType ? { mimeType } : {};
+      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = clipDone;
+      mediaRecorder.start();
+
+      recBtn.classList.add('recording');
+      recBtn.disabled = true;
+      saveAllBtn.disabled = true;
+      recBadge.style.display = 'block';
+      countDown.style.display = 'block';
+      savedMsg.style.display = 'none';
+
+      progressEl.style.transition = 'none';
+      progressEl.style.width = '0%';
+      setTimeout(() => {
+        progressEl.style.transition = 'width 10s linear';
+        progressEl.style.width = '100%';
+      }, 50);
+
+      let secs = 10;
+      countDown.textContent = secs;
+      timerInterval = setInterval(() => {
+        secs--;
+        countDown.textContent = secs;
+        if (secs <= 0) { clearInterval(timerInterval); mediaRecorder.stop(); }
+      }, 1000);
+    }
+
+    function clipDone() {
+      clipCount++;
+      const mimeType = chunks[0]?.type || 'video/mp4';
+      const ext = getExt(mimeType);
+      const filename = `展示会_${getTimestamp()}_${clipCount}.${ext}`;
+      const blob = new Blob(chunks, { type: mimeType });
+
+      // メモリに蓄積（ダウンロードしない）
+      savedClips.push({ blob, filename });
+
+      countLabel.textContent = `${clipCount} クリップ`;
+      savedMsg.textContent = `✅ ${clipCount}本目 録画完了`;
+      savedMsg.style.display = 'block';
+
+      // 25本で警告
+      if (clipCount >= 25) {
+        warningBanner.style.display = 'block';
+      }
+
+      // カメラを確実に再起動
+      setTimeout(() => {
+        if (stream && stream.active) {
+          videoEl.srcObject = stream;
+          videoEl.play().catch(()=>{});
+        }
+        recBtn.classList.remove('recording');
+        recBtn.disabled = false;
+        saveAllBtn.disabled = false;
+        recBadge.style.display = 'none';
+        countDown.style.display = 'none';
+        progressEl.style.transition = 'none';
+        progressEl.style.width = '0%';
+        setTimeout(() => { savedMsg.style.display = 'none'; }, 2000);
+      }, 400);
+    }
+
+    // まとめて保存
+    function openSaveAll() {
+      document.getElementById('saveall-msg').textContent =
+        `${savedClips.length}本のクリップを保存します。\n保存後も撮影を続けられます。`;
+      openDialog('saveall-dialog');
+    }
+
+    async function doSaveAll() {
+      closeDialog('saveall-dialog');
+      openDialog('saving-dialog');
+      const prog = document.getElementById('saving-progress');
+      const total = savedClips.length;
+
+      for (let i = 0; i < total; i++) {
+        const { blob, filename } = savedClips[i];
+        prog.textContent = `${i+1} / ${total}`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        await new Promise(r => setTimeout(r, 800));
+        URL.revokeObjectURL(url);
+      }
+
+      closeDialog('saving-dialog');
+      warningBanner.style.display = 'none';
+      savedClips = [];
+      clipCount = 0;
+      countLabel.textContent = '0 クリップ';
+      savedMsg.textContent = '✅ 保存完了！撮影を続けてください';
+      savedMsg.style.display = 'block';
+      setTimeout(() => { savedMsg.style.display = 'none'; }, 3000);
+    }
+
+    // 終了
+    function openExit() {
+      const note = savedClips.length > 0
+        ? `⚠️ まだ${savedClips.length}本が未保存です！`
+        : '保存済みです。';
+      document.getElementById('unsaved-note').textContent = note;
+      openDialog('exit-dialog');
+    }
+
+    function doExit() {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      closeDialog('exit-dialog');
+      document.body.innerHTML = `
+        <div style="color:#fff;text-align:center;padding-top:35vh;font-size:18px;background:#000;height:100vh;">
+          <div style="font-size:40px;margin-bottom:20px;">✅</div>
+          終了しました。<br>
+          <span style="font-size:14px;color:#888;margin-top:10px;display:block;">このタブを閉じてください</span>
+        </div>`;
+    }
+
+    exitBtn.addEventListener('click', openExit);
+    saveAllBtn.addEventListener('click', openSaveAll);
+    recBtn.addEventListener('click', startRec);
+    init();
+  </script>
+</body>
+</html>
