@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>展示会メモ v3</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+      background: #000;
+      color: #f0f0f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* カメラ画面を最大化 */
+    #camera-wrap {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* 上部バー */
+    #top-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    }
+    #top-bar h1 { font-size: 15px; font-weight: 600; color: #fff; }
+    #count-label {
+      font-size: 12px;
+      color: #fff;
+      background: rgba(255,255,255,0.2);
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+
+    /* RECバッジ */
+    #status-badge {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 5px 18px;
+      border-radius: 20px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    #status-badge.visible { opacity: 1; }
+    .s-rec { background: #e02020; color: #fff; }
+
+    /* カウントダウン */
+    #count-down {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -30%);
+      font-size: 90px;
+      font-weight: 200;
+      color: #fff;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.9);
+      display: none;
+      pointer-events: none;
+    }
+
+    /* 進行バー（黄色） */
+    #progress {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 5px;
+      background: #f5c500;
+      width: 0%;
+    }
+
+    /* 保存メッセージ */
+    #saved-msg {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: #4caf50;
+      font-weight: 500;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    #saved-msg.visible { opacity: 1; }
+
+    /* エラーメッセージ */
+    #error-msg {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      color: #ff6b6b;
+      text-align: center;
+      padding: 0 20px;
+      display: none;
+      background: rgba(0,0,0,0.7);
+      border-radius: 10px;
+      padding: 12px 20px;
+    }
+
+    /* 下部コントロール */
+    #bottom-bar {
+      background: #0a0a0a;
+      padding: 14px 24px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 3px solid #f5c500;
+    }
+
+    /* 終了ボタン */
+    #exit-btn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 2px solid #555;
+      background: #1a1a1a;
+      color: #aaa;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 2px;
+    }
+    #exit-btn:active { opacity: 0.7; }
+
+    /* 録画ボタン */
+    #rec-btn {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 4px solid #f5c500;
+      background: #1a1a1a;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.1s;
+    }
+    #rec-btn:active { transform: scale(0.91); }
+    #rec-inner {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #e02020;
+      transition: border-radius 0.2s, width 0.2s, height 0.2s;
+    }
+    #rec-btn.recording #rec-inner {
+      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+    }
+    #rec-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* クリップ数表示（右側） */
+    #clips-info {
+      width: 56px;
+      text-align: center;
+      font-size: 11px;
+      color: #888;
+      line-height: 1.4;
+    }
+    #clips-info span {
+      display: block;
+      font-size: 22px;
+      font-weight: 600;
+      color: #f5c500;
+    }
+
+    /* 終了確認ダイアログ */
+    #exit-dialog {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      padding: 24px;
+    }
+    #exit-dialog.visible { display: flex; }
+    #exit-dialog p {
+      font-size: 16px;
+      color: #fff;
+      text-align: center;
+    }
+    #exit-dialog .btn-row {
+      display: flex;
+      gap: 12px;
+    }
+    #exit-dialog button {
+      padding: 12px 28px;
+      border-radius: 10px;
+      border: none;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btn-cancel { background: #333; color: #fff; }
+    #btn-exit { background: #e02020; color: #fff; }
+  </style>
+</head>
+<body>
+
+  <div id="camera-wrap">
+    <video id="video" autoplay muted playsinline></video>
+
+    <div id="top-bar">
+      <h1>展示会メモ</h1>
+      <span id="count-label">0 クリップ</span>
+    </div>
+
+    <span id="status-badge" class="s-rec">● REC</span>
+    <div id="count-down">10</div>
+    <div id="progress"></div>
+    <div id="saved-msg"></div>
+    <div id="error-msg">カメラの許可が必要です。<br>ブラウザの設定でカメラをONにしてください。</div>
+  </div>
+
+  <div id="bottom-bar">
+    <button id="exit-btn">⏹<br>終了</button>
+    <button id="rec-btn" disabled>
+      <div id="rec-inner"></div>
+    </button>
+    <div id="clips-info"><span id="cnt">0</span>clips</div>
+  </div>
+
+  <!-- 終了確認ダイアログ -->
+  <div id="exit-dialog">
+    <p>アプリを終了しますか？<br>保存済みのクリップはダウンロードフォルダにあります。</p>
+    <div class="btn-row">
+      <button id="btn-cancel">戻る</button>
+      <button id="btn-exit">終了する</button>
+    </div>
+  </div>
+
+  <script>
+    let stream, mediaRecorder, chunks = [], clipCount = 0, timerInterval;
+
+    const videoEl     = document.getElementById('video');
+    const recBtn      = document.getElementById('rec-btn');
+    const statusBadge = document.getElementById('status-badge');
+    const countDown   = document.getElementById('count-down');
+    const progressEl  = document.getElementById('progress');
+    const savedMsg    = document.getElementById('saved-msg');
+    const countLabel  = document.getElementById('count-label');
+    const cntEl       = document.getElementById('cnt');
+    const errorMsg    = document.getElementById('error-msg');
+    const exitBtn     = document.getElementById('exit-btn');
+    const exitDialog  = document.getElementById('exit-dialog');
+    const btnCancel   = document.getElementById('btn-cancel');
+    const btnExit     = document.getElementById('btn-exit');
+
+    function pad(n) { return String(n).padStart(2,'0'); }
+    function getTimestamp() {
+      const d = new Date();
+      return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    }
+    function getMimeType() {
+      const types = ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+      for (const t of types) { if (MediaRecorder.isTypeSupported(t)) return t; }
+      return '';
+    }
+    function getExt(mimeType) { return mimeType.includes('mp4') ? 'mp4' : 'webm'; }
+
+    async function init() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: true
+        });
+        videoEl.srcObject = stream;
+        recBtn.disabled = false;
+      } catch(e) {
+        errorMsg.style.display = 'block';
+      }
+    }
+
+    function startRec() {
+      chunks = [];
+      const mimeType = getMimeType();
+      const options = mimeType ? { mimeType } : {};
+      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = saveClip;
+      mediaRecorder.start();
+
+      recBtn.classList.add('recording');
+      recBtn.disabled = true;
+      statusBadge.className = 's-rec visible';
+      countDown.style.display = 'block';
+      savedMsg.classList.remove('visible');
+
+      progressEl.style.transition = 'none';
+      progressEl.style.width = '0%';
+      setTimeout(() => {
+        progressEl.style.transition = 'width 10s linear';
+        progressEl.style.width = '100%';
+      }, 50);
+
+      let secs = 10;
+      countDown.textContent = secs;
+      timerInterval = setInterval(() => {
+        secs--;
+        countDown.textContent = secs;
+        if (secs <= 0) { clearInterval(timerInterval); mediaRecorder.stop(); }
+      }, 1000);
+    }
+
+    function saveClip() {
+      clipCount++;
+      const mimeType = chunks[0]?.type || 'video/mp4';
+      const ext = getExt(mimeType);
+      const filename = `展示会_${getTimestamp()}_${clipCount}.${ext}`;
+      const blob = new Blob(chunks, { type: mimeType });
+      const url = URL.createObjectURL(blob);
+
+      // ダウンロードリンクを作って即クリック→画面は変わらない
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+
+      savedMsg.textContent = `✅ ${filename}`;
+      savedMsg.classList.add('visible');
+      cntEl.textContent = clipCount;
+      countLabel.textContent = `${clipCount} クリップ`;
+
+      setTimeout(() => {
+        recBtn.classList.remove('recording');
+        recBtn.disabled = false;
+        statusBadge.className = 's-rec';
+        countDown.style.display = 'none';
+        progressEl.style.transition = 'none';
+        progressEl.style.width = '0%';
+        setTimeout(() => savedMsg.classList.remove('visible'), 2000);
+      }, 500);
+    }
+
+    // 終了ボタン
+    exitBtn.addEventListener('click', () => {
+      exitDialog.classList.add('visible');
+    });
+    btnCancel.addEventListener('click', () => {
+      exitDialog.classList.remove('visible');
+    });
+    btnExit.addEventListener('click', () => {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      exitDialog.classList.remove('visible');
+      document.body.innerHTML = '<div style="color:#fff;text-align:center;padding-top:40vh;font-size:18px;">アプリを終了しました。<br>ブラウザを閉じてください。</div>';
+    });
+
+    recBtn.addEventListener('click', startRec);
+    init();
+  </script>
+</body>
+</html>
