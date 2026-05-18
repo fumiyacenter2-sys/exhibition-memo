@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>展示会メモ v5</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+      background: #000;
+      color: #f0f0f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ===== 撮影画面 ===== */
+    #screen-rec {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    #camera-wrap {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    #top-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    }
+    #top-bar h1 { font-size: 15px; font-weight: 600; color: #fff; }
+    #count-label {
+      font-size: 12px;
+      color: #fff;
+      background: rgba(255,255,255,0.2);
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+    #rec-badge {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 5px 18px;
+      border-radius: 20px;
+      background: #e02020;
+      color: #fff;
+      display: none;
+      pointer-events: none;
+    }
+    #count-down {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -30%);
+      font-size: 90px;
+      font-weight: 200;
+      color: #fff;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.9);
+      display: none;
+      pointer-events: none;
+    }
+    #progress {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 5px;
+      background: #f5c500;
+      width: 0%;
+    }
+    #saved-msg {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 13px;
+      color: #4caf50;
+      font-weight: 500;
+      white-space: nowrap;
+      display: none;
+      pointer-events: none;
+      background: rgba(0,0,0,0.6);
+      padding: 4px 12px;
+      border-radius: 10px;
+    }
+    #warning-banner {
+      display: none;
+      background: #e02020;
+      color: #fff;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px;
+    }
+    #error-msg {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      color: #ff6b6b;
+      text-align: center;
+      padding: 12px 20px;
+      background: rgba(0,0,0,0.8);
+      border-radius: 10px;
+      display: none;
+    }
+    #bottom-bar {
+      background: #0a0a0a;
+      padding: 14px 24px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 3px solid #f5c500;
+    }
+    .side-btn {
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      border: 2px solid #444;
+      background: #1a1a1a;
+      color: #ccc;
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 3px;
+      line-height: 1.2;
+      text-align: center;
+    }
+    .side-btn:active { opacity: 0.7; }
+    #list-btn { border-color: #f5c500; color: #f5c500; }
+    #rec-btn {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      border: 4px solid #f5c500;
+      background: #1a1a1a;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.1s;
+    }
+    #rec-btn:active { transform: scale(0.91); }
+    #rec-inner {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #e02020;
+      transition: border-radius 0.2s, width 0.2s, height 0.2s;
+    }
+    #rec-btn.recording #rec-inner {
+      border-radius: 8px;
+      width: 30px;
+      height: 30px;
+    }
+    #rec-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ===== 一覧画面 ===== */
+    #screen-list {
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+      background: #0f0f1a;
+    }
+    #list-header {
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid #f5c500;
+      background: #0a0a0a;
+    }
+    #list-header h2 { font-size: 16px; font-weight: 600; }
+    #back-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 2px solid #f5c500;
+      background: transparent;
+      color: #f5c500;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #clip-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .clip-row {
+      background: #1a1a2e;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 0.5px solid #2a2a3a;
+    }
+    .clip-row video {
+      width: 80px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 6px;
+      flex-shrink: 0;
+      background: #000;
+    }
+    .clip-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .clip-info .clip-name {
+      font-size: 12px;
+      color: #aaa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .clip-info .clip-size {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+    .dl-btn-small {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: none;
+      background: #f5c500;
+      color: #000;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .dl-btn-small:active { opacity: 0.7; }
+    #empty-msg {
+      text-align: center;
+      color: #555;
+      font-size: 14px;
+      margin-top: 40px;
+    }
+    #list-footer {
+      padding: 12px 16px 24px;
+      background: #0a0a0a;
+      border-top: 1px solid #222;
+      display: flex;
+      gap: 10px;
+    }
+    #dl-all-btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      background: #f5c500;
+      color: #000;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #clear-btn {
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 2px solid #e02020;
+      background: transparent;
+      color: #e02020;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ダイアログ */
+    .dialog {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      padding: 24px;
+    }
+    .dialog.visible { display: flex; }
+    .dialog p { font-size: 15px; color: #fff; text-align: center; line-height: 1.6; }
+    .btn-row { display: flex; gap: 12px; }
+    .dialog button { padding: 12px 28px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .btn-cancel { background: #333; color: #fff; }
+    .btn-danger { background: #e02020; color: #fff; }
+  </style>
+</head>
+<body>
+
+  <!-- 撮影画面 -->
+  <div id="screen-rec">
+    <div id="warning-banner">⚠️ 残りメモリが少なくなっています！一覧から保存してください</div>
+    <div id="camera-wrap">
+      <video id="video" autoplay muted playsinline></video>
+      <div id="top-bar">
+        <h1>展示会メモ v5</h1>
+        <span id="count-label">0 クリップ</span>
+      </div>
+      <div id="rec-badge">● REC</div>
+      <div id="count-down">10</div>
+      <div id="progress"></div>
+      <div id="saved-msg">✅ 保存しました</div>
+      <div id="error-msg">カメラの許可が必要です。<br>ブラウザの設定でカメラをONにしてください。</div>
+    </div>
+    <div id="bottom-bar">
+      <button class="side-btn" id="exit-btn">⏹<br>終了</button>
+      <button id="rec-btn" disabled><div id="rec-inner"></div></button>
+      <button class="side-btn" id="list-btn">📋<br>一覧</button>
+    </div>
+  </div>
+
+  <!-- 一覧画面 -->
+  <div id="screen-list">
+    <div id="list-header">
+      <h2>撮影済みクリップ</h2>
+      <button id="back-btn">← 撮影に戻る</button>
+    </div>
+    <div id="clip-list">
+      <div id="empty-msg">まだクリップがありません</div>
+    </div>
+    <div id="list-footer">
+      <button id="dl-all-btn">📥 全部ダウンロード</button>
+      <button id="clear-btn">🗑 全削除</button>
+    </div>
+  </div>
+
+  <!-- 終了確認 -->
+  <div id="exit-dialog" class="dialog">
+    <p id="exit-msg">終了しますか？</p>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeDialog('exit-dialog')">戻る</button>
+      <button class="btn-danger" onclick="doExit()">終了する</button>
+    </div>
+  </div>
+
+  <!-- 全削除確認 -->
+  <div id="clear-dialog" class="dialog">
+    <p>全クリップを削除しますか？<br><span style="color:#f5c500;font-size:13px;">ダウンロードしていないものも消えます</span></p>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeDialog('clear-dialog')">キャンセル</button>
+      <button class="btn-danger" onclick="doClear()">削除する</button>
+    </div>
+  </div>
+
+  <script>
+    const DB_NAME = 'ExhibitionMemoDB';
+    const STORE = 'clips';
+    let db, stream, mediaRecorder, chunks = [], clipCount = 0, timerInterval;
+    let clipKeys = []; // IndexedDBのキー一覧
+
+    const videoEl      = document.getElementById('video');
+    const recBtn       = document.getElementById('rec-btn');
+    const recBadge     = document.getElementById('rec-badge');
+    const countDown    = document.getElementById('count-down');
+    const progressEl   = document.getElementById('progress');
+    const savedMsg     = document.getElementById('saved-msg');
+    const countLabel   = document.getElementById('count-label');
+    const warningBanner= document.getElementById('warning-banner');
+    const errorMsg     = document.getElementById('error-msg');
+
+    function pad(n) { return String(n).padStart(2,'0'); }
+    function getTimestamp() {
+      const d = new Date();
+      return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    }
+    function getMimeType() {
+      const types = ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+      for (const t of types) { if (MediaRecorder.isTypeSupported(t)) return t; }
+      return '';
+    }
+    function getExt(mimeType) { return mimeType.includes('mp4') ? 'mp4' : 'webm'; }
+    function openDialog(id) { document.getElementById(id).classList.add('visible'); }
+    function closeDialog(id) { document.getElementById(id).classList.remove('visible'); }
+
+    // IndexedDB初期化
+    function initDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = e => {
+          e.target.result.createObjectStore(STORE, { autoIncrement: true });
+        };
+        req.onsuccess = e => { db = e.target.result; resolve(); };
+        req.onerror = reject;
+      });
+    }
+
+    // DBに保存
+    function saveToDb(blob, filename) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        const store = tx.objectStore(STORE);
+        const req = store.add({ blob, filename, date: new Date().toISOString() });
+        req.onsuccess = e => { clipKeys.push(e.target.result); resolve(e.target.result); };
+        req.onerror = reject;
+      });
+    }
+
+    // DB全件取得
+    function getAllClips() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const store = tx.objectStore(STORE);
+        const req = store.getAll();
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = reject;
+      });
+    }
+
+    // DB全件キー取得
+    function getAllKeys() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const store = tx.objectStore(STORE);
+        const req = store.getAllKeys();
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = reject;
+      });
+    }
+
+    // DB全削除
+    function clearDB() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).clear().onsuccess = resolve;
+        tx.onerror = reject;
+      });
+    }
+
+    // カメラ初期化
+    async function initCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: true
+        });
+        videoEl.srcObject = stream;
+        videoEl.play().catch(()=>{});
+        recBtn.disabled = false;
+      } catch(e) {
+        errorMsg.style.display = 'block';
+      }
+    }
+
+    function startRec() {
+      chunks = [];
+      const mimeType = getMimeType();
+      const options = mimeType ? { mimeType } : {};
+      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = clipDone;
+      mediaRecorder.start();
+
+      recBtn.classList.add('recording');
+      recBtn.disabled = true;
+      recBadge.style.display = 'block';
+      countDown.style.display = 'block';
+      savedMsg.style.display = 'none';
+
+      progressEl.style.transition = 'none';
+      progressEl.style.width = '0%';
+      setTimeout(() => {
+        progressEl.style.transition = 'width 10s linear';
+        progressEl.style.width = '100%';
+      }, 50);
+
+      let secs = 10;
+      countDown.textContent = secs;
+      timerInterval = setInterval(() => {
+        secs--;
+        countDown.textContent = secs;
+        if (secs <= 0) { clearInterval(timerInterval); mediaRecorder.stop(); }
+      }, 1000);
+    }
+
+    async function clipDone() {
+      clipCount++;
+      const mimeType = chunks[0]?.type || 'video/mp4';
+      const ext = getExt(mimeType);
+      const filename = `展示会_${getTimestamp()}_${clipCount}.${ext}`;
+      const blob = new Blob(chunks, { type: mimeType });
+
+      // IndexedDBに保存（ダウンロードなし！）
+      await saveToDb(blob, filename);
+
+      countLabel.textContent = `${clipCount} クリップ`;
+      savedMsg.textContent = `✅ ${clipCount}本目 保存完了`;
+      savedMsg.style.display = 'block';
+
+      if (clipCount >= 25) warningBanner.style.display = 'block';
+
+      // カメラ再起動
+      setTimeout(() => {
+        if (stream && stream.active) {
+          videoEl.srcObject = stream;
+          videoEl.play().catch(()=>{});
+        }
+        recBtn.classList.remove('recording');
+        recBtn.disabled = false;
+        recBadge.style.display = 'none';
+        countDown.style.display = 'none';
+        progressEl.style.transition = 'none';
+        progressEl.style.width = '0%';
+        setTimeout(() => { savedMsg.style.display = 'none'; }, 2000);
+      }, 400);
+    }
+
+    // 一覧画面を開く
+    async function openList() {
+      document.getElementById('screen-rec').style.display = 'none';
+      document.getElementById('screen-list').style.display = 'flex';
+      await renderList();
+    }
+
+    // 一覧を描画
+    async function renderList() {
+      const clips = await getAllClips();
+      const keys = await getAllKeys();
+      const listEl = document.getElementById('clip-list');
+      listEl.innerHTML = '';
+
+      if (clips.length === 0) {
+        listEl.innerHTML = '<div id="empty-msg">まだクリップがありません</div>';
+        return;
+      }
+
+      clips.forEach((clip, i) => {
+        const url = URL.createObjectURL(clip.blob);
+        const sizeMB = (clip.blob.size / 1024 / 1024).toFixed(1);
+        const row = document.createElement('div');
+        row.className = 'clip-row';
+        row.innerHTML = `
+          <video src="${url}" muted playsinline></video>
+          <div class="clip-info">
+            <div class="clip-name">${clip.filename}</div>
+            <div class="clip-size">${sizeMB} MB</div>
+          </div>
+          <button class="dl-btn-small">保存</button>
+        `;
+        row.querySelector('video').addEventListener('click', function() {
+          this.paused ? this.play() : this.pause();
+        });
+        row.querySelector('.dl-btn-small').addEventListener('click', () => {
+          const a = document.createElement('a');
+          a.href = url; a.download = clip.filename;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        });
+        listEl.appendChild(row);
+      });
+    }
+
+    // 全部ダウンロード
+    async function dlAll() {
+      const clips = await getAllClips();
+      for (let i = 0; i < clips.length; i++) {
+        const clip = clips[i];
+        const url = URL.createObjectURL(clip.blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = clip.filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        await new Promise(r => setTimeout(r, 800));
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    // 撮影画面に戻る
+    function backToRec() {
+      document.getElementById('screen-list').style.display = 'none';
+      document.getElementById('screen-rec').style.display = 'flex';
+      if (stream && stream.active) {
+        videoEl.srcObject = stream;
+        videoEl.play().catch(()=>{});
+      }
+    }
+
+    // 全削除
+    async function doClear() {
+      await clearDB();
+      clipCount = 0;
+      clipKeys = [];
+      countLabel.textContent = '0 クリップ';
+      warningBanner.style.display = 'none';
+      closeDialog('clear-dialog');
+      await renderList();
+    }
+
+    // 終了
+    function doExit() {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      closeDialog('exit-dialog');
+      document.body.innerHTML = `
+        <div style="color:#fff;text-align:center;padding-top:35vh;font-size:18px;background:#000;height:100vh;">
+          <div style="font-size:40px;margin-bottom:16px;">✅</div>
+          終了しました。<br>
+          <span style="font-size:13px;color:#666;margin-top:8px;display:block;">このタブを閉じてください</span>
+        </div>`;
+    }
+
+    // イベント
+    document.getElementById('rec-btn').addEventListener('click', startRec);
+    document.getElementById('list-btn').addEventListener('click', openList);
+    document.getElementById('back-btn').addEventListener('click', backToRec);
+    document.getElementById('exit-btn').addEventListener('click', () => {
+      document.getElementById('exit-msg').textContent =
+        clipCount > 0 ? `終了しますか？\nクリップはIndexedDBに残っています。` : '終了しますか？';
+      openDialog('exit-dialog');
+    });
+    document.getElementById('dl-all-btn').addEventListener('click', dlAll);
+    document.getElementById('clear-btn').addEventListener('click', () => openDialog('clear-dialog'));
+
+    // 起動
+    (async () => {
+      await initDB();
+      // 既存クリップ数を確認
+      const keys = await getAllKeys();
+      clipCount = keys.length;
+      if (clipCount > 0) countLabel.textContent = `${clipCount} クリップ`;
+      await initCamera();
+    })();
+  </script>
+</body>
+</html>
