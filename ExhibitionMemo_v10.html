@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>展示会記録メモ v10</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+      background: #000;
+      color: #f0f0f0;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ===== 撮影画面 ===== */
+    #screen-rec {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
+    #camera-wrap {
+      position: relative;
+      flex: 1;
+      background: #000;
+      overflow: hidden;
+      min-height: 0;
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* 日時表示 */
+    #datetime {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.85);
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+      line-height: 1.4;
+    }
+
+    /* クリップ数 */
+    #count-label {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      font-size: 12px;
+      color: #fff;
+      background: rgba(255,255,255,0.2);
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+
+    #rec-badge {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 5px 18px;
+      border-radius: 20px;
+      background: #e02020;
+      color: #fff;
+      display: none;
+      pointer-events: none;
+    }
+    #count-down {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -30%);
+      font-size: 90px;
+      font-weight: 200;
+      color: #fff;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.9);
+      display: none;
+      pointer-events: none;
+    }
+    #progress {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 5px;
+      background: #f5c500;
+      width: 0%;
+    }
+    #saved-msg {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 13px;
+      color: #4caf50;
+      font-weight: 500;
+      white-space: nowrap;
+      display: none;
+      pointer-events: none;
+      background: rgba(0,0,0,0.6);
+      padding: 4px 12px;
+      border-radius: 10px;
+    }
+    #warning-banner {
+      display: none;
+      background: #e02020;
+      color: #fff;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px;
+      flex-shrink: 0;
+    }
+    #error-msg {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      color: #ff6b6b;
+      text-align: center;
+      padding: 12px 20px;
+      background: rgba(0,0,0,0.8);
+      border-radius: 10px;
+      display: none;
+    }
+
+    /* 下部ボタンエリア */
+    #bottom-bar {
+      background: #0a0a0a;
+      padding: 10px 20px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 3px solid #f5c500;
+      flex-shrink: 0;
+    }
+    .side-btn {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      border: 2px solid #444;
+      background: #1a1a1a;
+      color: #ccc;
+      font-size: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 2px;
+      line-height: 1.2;
+      text-align: center;
+    }
+    .side-btn:active { opacity: 0.7; }
+    #list-btn { border-color: #f5c500; color: #f5c500; }
+    #flip-btn { border-color: #aaa; color: #aaa; font-size: 18px; }
+
+    #rec-btn {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 4px solid #f5c500;
+      background: #1a1a1a;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.1s;
+    }
+    #rec-btn:active { transform: scale(0.91); }
+    #rec-inner {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #e02020;
+      transition: border-radius 0.2s, width 0.2s, height 0.2s;
+    }
+    #rec-btn.recording #rec-inner {
+      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+    }
+    #rec-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ===== 一覧画面 ===== */
+    #screen-list {
+      display: none;
+      flex-direction: column;
+      height: 100dvh;
+      background: #0f0f1a;
+    }
+    #list-header {
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid #f5c500;
+      background: #0a0a0a;
+      flex-shrink: 0;
+    }
+    #list-header h2 { font-size: 15px; font-weight: 600; }
+    #back-btn {
+      padding: 7px 14px;
+      border-radius: 8px;
+      border: 2px solid #f5c500;
+      background: transparent;
+      color: #f5c500;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #clip-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+    .clip-row {
+      background: #1a1a2e;
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 0.5px solid #2a2a3a;
+    }
+    .clip-row video {
+      width: 72px;
+      height: 54px;
+      object-fit: cover;
+      border-radius: 6px;
+      flex-shrink: 0;
+      background: #000;
+    }
+
+    /* フルスクリーン再生オーバーレイ */
+    #player-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 300;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    #player-overlay.visible { display: flex; }
+    #player-datetime {
+      color: #f5c500;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      margin-bottom: 14px;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+    }
+    #player-video {
+      width: 100%;
+      max-height: 70vh;
+      background: #000;
+    }
+    #player-close {
+      margin-top: 18px;
+      padding: 12px 36px;
+      border-radius: 30px;
+      border: 2px solid #f5c500;
+      background: transparent;
+      color: #f5c500;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .clip-info { flex: 1; min-width: 0; }
+    .clip-name {
+      font-size: 11px;
+      color: #aaa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .clip-size { font-size: 10px; color: #666; margin-top: 2px; }
+    .dl-btn-small {
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: none;
+      background: #f5c500;
+      color: #000;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    #empty-msg { text-align: center; color: #555; font-size: 14px; margin-top: 40px; }
+    #list-footer {
+      padding: 10px 14px 18px;
+      background: #0a0a0a;
+      border-top: 1px solid #222;
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    #dl-all-btn {
+      flex: 1;
+      padding: 11px;
+      border-radius: 10px;
+      border: none;
+      background: #f5c500;
+      color: #000;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #clear-btn {
+      padding: 11px 14px;
+      border-radius: 10px;
+      border: 2px solid #e02020;
+      background: transparent;
+      color: #e02020;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ダイアログ */
+    .dialog {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      padding: 24px;
+    }
+    .dialog.visible { display: flex; }
+    .dialog p { font-size: 15px; color: #fff; text-align: center; line-height: 1.6; }
+    .btn-row { display: flex; gap: 12px; }
+    .dialog button { padding: 12px 24px; border-radius: 10px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn-cancel { background: #333; color: #fff; }
+    .btn-danger { background: #e02020; color: #fff; }
+    .btn-ok { background: #f5c500; color: #000; }
+  </style>
+</head>
+<body>
+
+  <!-- 撮影画面 -->
+  <div id="screen-rec">
+    <div id="warning-banner">⚠️ クリップが増えています！一覧から保存してください</div>
+    <div id="camera-wrap">
+      <video id="video" autoplay muted playsinline></video>
+      <div id="datetime"></div>
+      <span id="count-label">0 クリップ</span>
+      <div id="rec-badge">● REC</div>
+      <div id="count-down">10</div>
+      <div id="progress"></div>
+      <div id="saved-msg">✅ 保存しました</div>
+      <div id="error-msg">カメラの許可が必要です。<br>ブラウザの設定でカメラをONにしてください。</div>
+    </div>
+    <div id="bottom-bar">
+      <button class="side-btn" id="exit-btn">⏹<br>終了</button>
+      <button id="rec-btn" disabled><div id="rec-inner"></div></button>
+      <button class="side-btn" id="flip-btn" title="カメラ反転">🔄</button>
+    </div>
+    <div style="display:flex;justify-content:center;padding:6px 0 10px;background:#0a0a0a;flex-shrink:0;">
+      <button class="side-btn" id="list-btn" style="width:auto;height:auto;border-radius:20px;padding:8px 24px;font-size:13px;">📋 クリップ一覧</button>
+    </div>
+  </div>
+
+  <!-- 一覧画面 -->
+  <div id="screen-list">
+    <div id="list-header">
+      <h2>撮影済みクリップ</h2>
+      <button id="back-btn">← 撮影に戻る</button>
+    </div>
+    <div id="clip-list">
+      <div id="empty-msg">まだクリップがありません</div>
+    </div>
+    <div id="list-footer">
+      <button id="dl-all-btn">📥 全部ダウンロード</button>
+      <button id="clear-btn">🗑 全削除</button>
+    </div>
+  </div>
+
+  <!-- フルスクリーン再生オーバーレイ -->
+  <div id="player-overlay">
+    <div id="player-datetime"></div>
+    <video id="player-video" playsinline controls></video>
+    <button id="player-close" onclick="closePlayer()">✕ 閉じる</button>
+  </div>
+
+  <!-- 終了確認 -->
+  <div id="exit-dialog" class="dialog">
+    <p id="exit-msg">終了しますか？</p>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeDialog('exit-dialog')">戻る</button>
+      <button class="btn-ok" onclick="doDownloadAndExit()">保存して終了</button>
+      <button class="btn-danger" onclick="doExit()">そのまま終了</button>
+    </div>
+  </div>
+
+  <!-- 全削除確認 -->
+  <div id="clear-dialog" class="dialog">
+    <p>全クリップを削除しますか？<br><span style="color:#f5c500;font-size:13px;">未保存のものも消えます</span></p>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeDialog('clear-dialog')">キャンセル</button>
+      <button class="btn-danger" onclick="doClear()">削除する</button>
+    </div>
+  </div>
+
+  <script>
+    const DB_NAME = 'ExhibitionMemoDB_v10';
+    const STORE = 'clips';
+    let db, stream, mediaRecorder, chunks = [], clipCount = 0, timerInterval;
+    let facingMode = 'environment'; // 外カメラからスタート
+
+    const videoEl       = document.getElementById('video');
+    const recBtn        = document.getElementById('rec-btn');
+    const recBadge      = document.getElementById('rec-badge');
+    const countDown     = document.getElementById('count-down');
+    const progressEl    = document.getElementById('progress');
+    const savedMsg      = document.getElementById('saved-msg');
+    const countLabel    = document.getElementById('count-label');
+    const warningBanner = document.getElementById('warning-banner');
+    const errorMsg      = document.getElementById('error-msg');
+    const datetimeEl    = document.getElementById('datetime');
+
+    function pad(n) { return String(n).padStart(2,'0'); }
+
+    // 日時更新
+    function updateDatetime() {
+      const d = new Date();
+      const date = `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`;
+      const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      datetimeEl.textContent = `${date} ${time}`;
+    }
+    setInterval(updateDatetime, 1000);
+    updateDatetime();
+
+    function getTimestamp() {
+      const d = new Date();
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}-${pad(d.getHours())}-${pad(d.getMinutes())}`;
+    }
+    function getMimeType() {
+      const types = ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+      for (const t of types) { if (MediaRecorder.isTypeSupported(t)) return t; }
+      return '';
+    }
+    function getExt(mimeType) { return mimeType.includes('mp4') ? 'mp4' : 'webm'; }
+    function openDialog(id) { document.getElementById(id).classList.add('visible'); }
+    function closeDialog(id) { document.getElementById(id).classList.remove('visible'); }
+
+    // IndexedDB
+    function initDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = e => e.target.result.createObjectStore(STORE, { autoIncrement: true });
+        req.onsuccess = e => { db = e.target.result; resolve(); };
+        req.onerror = reject;
+      });
+    }
+    function saveToDb(blob, filename) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        const req = tx.objectStore(STORE).add({ blob, filename, date: new Date().toISOString() });
+        req.onsuccess = resolve;
+        req.onerror = reject;
+      });
+    }
+    function getAllClips() {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly');
+        tx.objectStore(STORE).getAll().onsuccess = e => resolve(e.target.result);
+      });
+    }
+    function clearDB() {
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).clear().onsuccess = resolve;
+      });
+    }
+
+    // カメラ起動
+    async function initCamera() {
+      try {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: true
+        });
+        videoEl.srcObject = stream;
+        videoEl.play().catch(()=>{});
+        recBtn.disabled = false;
+        errorMsg.style.display = 'none';
+      } catch(e) {
+        errorMsg.style.display = 'block';
+      }
+    }
+
+    // カメラ反転
+    document.getElementById('flip-btn').addEventListener('click', async () => {
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      await initCamera();
+    });
+
+    function startRec() {
+      chunks = [];
+      const mimeType = getMimeType();
+      const options = mimeType ? { mimeType } : {};
+      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = clipDone;
+      mediaRecorder.start();
+
+      recBtn.classList.add('recording');
+      recBtn.disabled = true;
+      recBadge.style.display = 'block';
+      countDown.style.display = 'block';
+      savedMsg.style.display = 'none';
+
+      progressEl.style.transition = 'none';
+      progressEl.style.width = '0%';
+      setTimeout(() => {
+        progressEl.style.transition = 'width 10s linear';
+        progressEl.style.width = '100%';
+      }, 50);
+
+      let secs = 10;
+      countDown.textContent = secs;
+      timerInterval = setInterval(() => {
+        secs--;
+        countDown.textContent = secs;
+        if (secs <= 0) { clearInterval(timerInterval); mediaRecorder.stop(); }
+      }, 1000);
+    }
+
+    async function clipDone() {
+      clipCount++;
+      const mimeType = chunks[0]?.type || 'video/mp4';
+      const ext = getExt(mimeType);
+      const filename = `${getTimestamp()}.${ext}`;
+      const blob = new Blob(chunks, { type: mimeType });
+
+      await saveToDb(blob, filename);
+
+      countLabel.textContent = `${clipCount} クリップ`;
+      savedMsg.textContent = `✅ ${clipCount}本目 保存完了`;
+      savedMsg.style.display = 'block';
+      if (clipCount >= 25) warningBanner.style.display = 'block';
+
+      setTimeout(() => {
+        if (stream && stream.active) {
+          videoEl.srcObject = stream;
+          videoEl.play().catch(()=>{});
+        }
+        recBtn.classList.remove('recording');
+        recBtn.disabled = false;
+        recBadge.style.display = 'none';
+        countDown.style.display = 'none';
+        progressEl.style.transition = 'none';
+        progressEl.style.width = '0%';
+        setTimeout(() => { savedMsg.style.display = 'none'; }, 2000);
+      }, 400);
+    }
+
+    // 一覧画面
+    async function openList() {
+      document.getElementById('screen-rec').style.display = 'none';
+      document.getElementById('screen-list').style.display = 'flex';
+      await renderList();
+    }
+
+    async function renderList() {
+      const clips = await getAllClips();
+      const listEl = document.getElementById('clip-list');
+      listEl.innerHTML = '';
+      if (clips.length === 0) {
+        listEl.innerHTML = '<div id="empty-msg">まだクリップがありません</div>';
+        return;
+      }
+      clips.forEach((clip) => {
+        const url = URL.createObjectURL(clip.blob);
+        const sizeMB = (clip.blob.size / 1024 / 1024).toFixed(1);
+        const row = document.createElement('div');
+        row.className = 'clip-row';
+        row.innerHTML = `
+          <video src="${url}" muted playsinline></video>
+          <div class="clip-info">
+            <div class="clip-name">${clip.filename}</div>
+            <div class="clip-size">${sizeMB} MB</div>
+          </div>
+          <button class="dl-btn-small">保存</button>
+        `;
+        row.querySelector('video').addEventListener('click', () => {
+          openPlayer(url, clip.filename);
+        });
+        row.querySelector('.dl-btn-small').addEventListener('click', () => {
+          const a = document.createElement('a');
+          a.href = url; a.download = clip.filename;
+          a.style.display = 'none';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        });
+        listEl.appendChild(row);
+      });
+    }
+
+    async function dlAll() {
+      const clips = await getAllClips();
+      for (let i = 0; i < clips.length; i++) {
+        const url = URL.createObjectURL(clips[i].blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = clips[i].filename;
+        a.style.display = 'none';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        await new Promise(r => setTimeout(r, 800));
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    function openPlayer(url, filename) {
+      // ファイル名から日時を取り出して表示
+      // 例: 2026-05-24-17-40.mp4 → 2026-05-24  17:40
+      const base = filename.replace(/\.\w+$/, ''); // 拡張子除去
+      const parts = base.split('-');
+      let displayDate = filename;
+      if (parts.length >= 5) {
+        displayDate = `${parts[0]}-${parts[1]}-${parts[2]}  ${parts[3]}:${parts[4]}`;
+      }
+      document.getElementById('player-datetime').textContent = displayDate;
+      const pv = document.getElementById('player-video');
+      pv.src = url;
+      pv.currentTime = 0;
+      document.getElementById('player-overlay').classList.add('visible');
+      pv.play().catch(()=>{});
+    }
+
+    function closePlayer() {
+      const pv = document.getElementById('player-video');
+      pv.pause();
+      pv.src = '';
+      document.getElementById('player-overlay').classList.remove('visible');
+    }
+
+    function backToRec() {
+      document.getElementById('screen-list').style.display = 'none';
+      document.getElementById('screen-rec').style.display = 'flex';
+      if (stream && stream.active) {
+        videoEl.srcObject = stream;
+        videoEl.play().catch(()=>{});
+      }
+    }
+
+    async function doClear() {
+      await clearDB();
+      clipCount = 0;
+      countLabel.textContent = '0 クリップ';
+      warningBanner.style.display = 'none';
+      closeDialog('clear-dialog');
+      await renderList();
+    }
+
+    // 保存して終了
+    async function doDownloadAndExit() {
+      closeDialog('exit-dialog');
+      const clips = await getAllClips();
+      for (let i = 0; i < clips.length; i++) {
+        const url = URL.createObjectURL(clips[i].blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = clips[i].filename;
+        a.style.display = 'none';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        await new Promise(r => setTimeout(r, 800));
+        URL.revokeObjectURL(url);
+      }
+      doExit();
+    }
+
+    function doExit() {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      closeDialog('exit-dialog');
+      document.body.innerHTML = `
+        <div style="color:#fff;text-align:center;padding-top:35vh;font-size:18px;background:#000;height:100vh;">
+          <div style="font-size:40px;margin-bottom:16px;">✅</div>
+          終了しました。<br>
+          <span style="font-size:13px;color:#666;margin-top:8px;display:block;">このタブを閉じてください</span>
+        </div>`;
+    }
+
+    // イベント
+    recBtn.addEventListener('click', startRec);
+    document.getElementById('list-btn').addEventListener('click', openList);
+    document.getElementById('back-btn').addEventListener('click', backToRec);
+    document.getElementById('exit-btn').addEventListener('click', async () => {
+      const clips = await getAllClips();
+      document.getElementById('exit-msg').textContent =
+        clips.length > 0
+          ? `未保存のクリップが${clips.length}本あります。\n保存してから終了しますか？`
+          : '終了しますか？';
+      openDialog('exit-dialog');
+    });
+    document.getElementById('dl-all-btn').addEventListener('click', dlAll);
+    document.getElementById('clear-btn').addEventListener('click', () => openDialog('clear-dialog'));
+
+    // 起動
+    (async () => {
+      await initDB();
+      const clips = await getAllClips();
+      clipCount = clips.length;
+      if (clipCount > 0) countLabel.textContent = `${clipCount} クリップ`;
+      await initCamera();
+    })();
+  </script>
+</body>
+</html>
