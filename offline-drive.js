@@ -108,7 +108,20 @@ async function driveCall(payload){
    const data=await response.json();if(!data.ok)throw Error(data.error || '保存失敗');return data;
  }finally{clearTimeout(timeout);}
 }
-function blobBase64(blob){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob);});}
+function blobBase64(blob){
+ return new Promise((resolve,reject)=>{
+   const reader=new FileReader();
+   reader.onload=()=>{
+     const dataUrl=String(reader.result);
+     // MIME codec lists may contain commas (e.g. vp8,opus).
+     const marker=';base64,',start=dataUrl.indexOf(marker);
+     if(start<0){reject(new Error('動画データを変換できませんでした'));return;}
+     resolve(dataUrl.slice(start+marker.length));
+   };
+   reader.onerror=()=>reject(reader.error || new Error('動画データを読み込めませんでした'));
+   reader.readAsDataURL(blob);
+ });
+}
 async function syncDrive(){
  if(syncing || !db)return;
  if(!navigator.onLine){statusBar.textContent='オフライン · 端末に保存して接続後に同期';return;}
