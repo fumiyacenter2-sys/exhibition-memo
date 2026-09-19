@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0f0f1a">
-  <title>10秒記録メモ v23</title>
+  <title>10秒記録メモ v24</title>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -114,43 +114,30 @@
       border: 2px solid #f5c500; background: transparent;
       color: #f5c500; font-size: 13px; font-weight: 600; cursor: pointer;
     }
-    /* クリップ一覧の窓の高さは「8個ぶん」に固定する。
-       以前はvwを使ったネストしたcalc()で計算していたが、端末のブラウザによっては
-       その計算式自体が効かず、高さの制限が一切かからなくなる不具合があった。
-       そのため、あらゆるブラウザで確実に効く単純なvh（画面の高さに対する割合）の
-       固定値だけに変更した。列数（画面幅）ごとに必要な行数が変わるため、
-       ブレークポイントごとに値を分けている。 */
+    /* Four fixed rows; the rail scrolls without compressing cards. */
     #clip-grid {
-      flex: 1 1 auto; overflow-y: scroll; padding: 10px;
-      display: grid; grid-template-columns: repeat(2, 1fr);
-      gap: 10px; min-height: 0; align-content: start;
-      max-height: 60vh; /* 2列 × 4行ぶん */
-      scrollbar-width: auto; scrollbar-color: #f5c500 #1a1a2e;
-      overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+      flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+      margin: 10px; position: relative;
+      overscroll-behavior: contain; touch-action: pan-y;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin; scrollbar-color: #f5c500 #1a1a2e;
     }
-    #clip-grid::-webkit-scrollbar { width: 8px; }
-    #clip-grid::-webkit-scrollbar-track { background: #1a1a2e; }
-    #clip-grid::-webkit-scrollbar-thumb { background: #f5c500; border-radius: 4px; }
-    @media (min-width: 420px) {
-      #clip-grid {
-        grid-template-columns: repeat(3, 1fr);
-        max-height: 46vh; /* 3列 × 3行ぶん */
-      }
-    }
-    @media (min-width: 640px) {
-      #clip-grid {
-        grid-template-columns: repeat(4, 1fr);
-        max-height: 32vh; /* 4列 × 2行ぶん */
-      }
+    #clip-rail { position: relative; width: 100%; }
+    .clip-row {
+      position: absolute; left: 0; right: 0;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
     }
     .clip-card {
-      position: relative; background: #1a1a2e; border-radius: 10px;
-      overflow: hidden; border: 0.5px solid #2a2a3a; cursor: pointer;
+      position: relative; min-width: 0; height: 100%; padding: 0;
+      background: #1a1a2e; border-radius: 10px; color: #fff;
+      overflow: hidden; border: 1px solid #2a2a3a; cursor: pointer;
     }
+    .clip-card:focus-visible { outline: 2px solid #f5c500; outline-offset: -3px; }
     .clip-card video {
-      width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: #000;
-      pointer-events: none;
+      width: 100%; height: 100%; object-fit: cover; display: block;
+      background: #000; pointer-events: none;
     }
+    #list-status { flex-shrink: 0; text-align: center; font-size: 12px; color: #aaa; padding: 2px 8px 10px; }
     .clip-play-icon {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 36px; height: 36px; border-radius: 50%;
@@ -267,6 +254,7 @@
     <div id="clip-grid">
       <div id="empty-msg">まだクリップがありません</div>
     </div>
+    <div id="list-status" role="status">上下にスワイプして見返す</div>
     <div id="list-footer">
       <button id="dl-all-btn">📦 未保存をまとめて保存(ZIP)</button>
       <button id="clear-btn">🗑 全削除</button>
@@ -512,12 +500,86 @@
       }, 400);
     }
 
-    // --- 一覧（8個ずつ・最新順・無限スクロール）＋ 全画面プレーヤー ---
-    const PAGE_SIZE = 8;
-    let clipItems = [];   // { clip, key, url } 最新順
-    let loadedCount = 0;
-    let gridObserver = null;
+    // Only visible rows and a small buffer hold video blobs / object URLs.
+    let clipItems = [];
     let currentPlayerItem = null;
+    let listGeneration = 0;
+    let rowHeight = 0;
+    let listFrame = 0;
+    const mountedRows = new Map();
+    const gridEl = document.getElementById('clip-grid');
+
+    function releaseItem(item) {
+      if (item === currentPlayerItem) return;
+      if (item.url) URL.revokeObjectURL(item.url);
+      item.url = null;
+      item.clip = null;
+    }
+    function removeRow(row) {
+      row.querySelectorAll('video').forEach(video => {
+        video.removeAttribute('src'); video.load();
+      });
+      row._items.forEach(releaseItem);
+      row.remove();
+    }
+    function clearMountedRows() {
+      mountedRows.forEach(removeRow);
+      mountedRows.clear();
+    }
+    function readClip(key) {
+      return new Promise((resolve, reject) => {
+        const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    function scheduleRows() {
+      if (!listFrame) listFrame = requestAnimationFrame(() => {
+        listFrame = 0; updateRows();
+      });
+    }
+    gridEl.addEventListener('scroll', scheduleRows, { passive: true });
+    new ResizeObserver(() => {
+      if (!gridEl.clientHeight) return;
+      const oldStride = rowHeight + 10;
+      const rowPosition = rowHeight ? gridEl.scrollTop / oldStride : 0;
+      rowHeight = Math.max(1, (gridEl.clientHeight - 30) / 4);
+      sizeRail();
+      gridEl.scrollTop = rowPosition * (rowHeight + 10);
+      updateRows();
+    }).observe(gridEl);
+
+    function sizeRail() {
+      const rail = document.getElementById('clip-rail');
+      if (rail) rail.style.height = `${Math.max(0, Math.ceil(clipItems.length / 2) * (rowHeight + 10) - 10)}px`;
+    }
+    function updateRows() {
+      const rail = document.getElementById('clip-rail');
+      if (!rail || !gridEl.clientHeight || !clipItems.length) return;
+      const stride = rowHeight + 10;
+      const firstVisible = Math.floor(gridEl.scrollTop / stride);
+      const lastVisible = Math.ceil((gridEl.scrollTop + gridEl.clientHeight) / stride) - 1;
+      const start = Math.max(0, firstVisible - 1);
+      const end = Math.min(Math.ceil(clipItems.length / 2) - 1, lastVisible + 1);
+      for (const [index, row] of mountedRows) {
+        if (index < start || index > end) { removeRow(row); mountedRows.delete(index); }
+      }
+      for (let index = start; index <= end; index++) {
+        let row = mountedRows.get(index);
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'clip-row';
+          row._items = clipItems.slice(index * 2, index * 2 + 2);
+          mountedRows.set(index, row);
+          rail.appendChild(row);
+          row._items.forEach(item => row.appendChild(buildClipCard(item)));
+        }
+        row.style.top = `${index * stride}px`;
+        row.style.height = `${rowHeight}px`;
+      }
+      document.getElementById('list-status').textContent =
+        `${firstVisible * 2 + 1}〜${Math.min(clipItems.length, (lastVisible + 1) * 2)} / 全${clipItems.length}件 · 上下にスワイプ`;
+    }
 
     function nameForDisplay(filename) {
       return filename
@@ -534,86 +596,74 @@
       await renderList();
     }
 
-    // 最新順のクリップ一覧を読み直し、先頭8個を表示してスクロール監視をセット
     async function renderList() {
-      const clips = await getAllClips();
-      const keys  = await getAllKeys();
-      clipItems = clips.map((clip, i) => ({ clip, key: keys[i] })).reverse(); // 最新が先頭
-      loadedCount = 0;
-
-      const gridEl = document.getElementById('clip-grid');
-      gridEl.innerHTML = '';
-
-      if (clipItems.length === 0) {
-        gridEl.innerHTML = '<div id="empty-msg">まだクリップがありません</div>';
-        document.getElementById('dl-all-btn').disabled = true;
-        return;
-      }
-      document.getElementById('dl-all-btn').disabled = false;
-
-      const sentinel = document.createElement('div');
-      sentinel.id = 'scroll-sentinel';
-      gridEl.appendChild(sentinel);
-
-      loadMoreCards();
-
-      if (gridObserver) gridObserver.disconnect();
-      gridObserver = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting) {
-          loadMoreCards();
-          // センチネルが読み込み後も画面内に残っている場合、IntersectionObserverは
-          // 状態変化がないと再発火しないため、一度unobserve→observaで強制的に再判定させる
-          const s = document.getElementById('scroll-sentinel');
-          if (s) { gridObserver.unobserve(s); gridObserver.observe(s); }
+      const generation = ++listGeneration;
+      const savedTop = gridEl.scrollTop;
+      closePlayer();
+      clearMountedRows();
+      gridEl.replaceChildren();
+      document.getElementById('list-status').textContent = '読み込み中…';
+      try {
+        const keys = await getAllKeys();
+        if (generation !== listGeneration) return;
+        clipItems = keys.reverse().map(key => ({ key }));
+        document.getElementById('dl-all-btn').disabled = !clipItems.length;
+        if (!clipItems.length) {
+          gridEl.innerHTML = '<div id="empty-msg">まだクリップがありません</div>';
+          document.getElementById('list-status').textContent = '全0件';
+          return;
         }
-      }, { root: gridEl, rootMargin: '200px' });
-      gridObserver.observe(sentinel);
-    }
-
-    // 次の8個分のカードをグリッドに追加（スクロール監視用センチネルの直前に挿入）
-    function loadMoreCards() {
-      if (loadedCount >= clipItems.length) return;
-      const gridEl = document.getElementById('clip-grid');
-      const sentinel = document.getElementById('scroll-sentinel');
-      const nextItems = clipItems.slice(loadedCount, loadedCount + PAGE_SIZE);
-      nextItems.forEach(item => {
-        if (!item.url) item.url = URL.createObjectURL(item.clip.blob);
-        const card = buildClipCard(item);
-        gridEl.insertBefore(card, sentinel);
-      });
-      loadedCount += nextItems.length;
-
-      let moreMsg = document.getElementById('load-more-msg');
-      if (loadedCount >= clipItems.length) {
-        if (!moreMsg) {
-          moreMsg = document.createElement('div');
-          moreMsg.id = 'load-more-msg';
-          gridEl.insertBefore(moreMsg, sentinel);
-        }
-        moreMsg.textContent = `全 ${clipItems.length} 件`;
-      } else if (moreMsg) {
-        moreMsg.remove();
+        const rail = document.createElement('div');
+        rail.id = 'clip-rail';
+        gridEl.appendChild(rail);
+        rowHeight = Math.max(1, (gridEl.clientHeight - 30) / 4);
+        sizeRail();
+        gridEl.scrollTop = savedTop;
+        updateRows();
+      } catch (error) {
+        document.getElementById('list-status').textContent = '読み込めませんでした。撮影画面に戻って、もう一度お試しください。';
       }
     }
 
     function buildClipCard(item) {
-      const { clip } = item;
-      const isDownloaded = clip.downloaded === true;
-      const card = document.createElement('div');
-      card.className = `clip-card${isDownloaded ? ' downloaded' : ''}`;
-      card.innerHTML = `
-        <video ${item.url ? `src="${item.url}"` : ''} muted playsinline preload="metadata"></video>
-        <div class="clip-play-icon">▶</div>
-        <div class="clip-badge-time">${nameForDisplay(clip.filename)}</div>
-        ${isDownloaded ? '<div class="clip-badge-done">✅ 済</div>' : ''}
-      `;
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'clip-card';
+      card.disabled = true;
+      card.setAttribute('aria-label', '動画を読み込み中');
+      card.innerHTML = '<video muted playsinline preload="metadata"></video><div class="clip-play-icon">▶</div><div class="clip-badge-time">読み込み中…</div>';
+      const generation = listGeneration;
+      readClip(item.key).then(clip => {
+        if (generation !== listGeneration || !card.isConnected || !clip) return;
+        item.clip = clip;
+        item.url = URL.createObjectURL(clip.blob);
+        card.querySelector('video').src = item.url;
+        card.querySelector('.clip-badge-time').textContent = nameForDisplay(clip.filename);
+        card.setAttribute('aria-label', nameForDisplay(clip.filename) + ' を再生');
+        card.disabled = false;
+        if (clip.downloaded) showDownloaded(card);
+      }).catch(() => {
+        if (card.isConnected) card.querySelector('.clip-badge-time').textContent = '読み込めませんでした';
+      });
       card.addEventListener('click', () => openPlayer(item, card));
       return card;
+    }
+    function showDownloaded(card) {
+      if (!card || !card.isConnected) return;
+      card.classList.add('downloaded');
+      if (!card.querySelector('.clip-badge-done')) {
+        const badge = document.createElement('div');
+        badge.className = 'clip-badge-done';
+        badge.textContent = '✅ 済';
+        card.appendChild(badge);
+      }
     }
 
     // 全画面プレーヤーで再生。終了したら一覧（8個表示）に自動で戻る
     function openPlayer(item, cardEl) {
+      if (!item.clip || !item.url) return;
       currentPlayerItem = item;
+      item._cardEl = cardEl;
       const overlay = document.getElementById('player-overlay');
       const video = document.getElementById('player-video');
       const telop = document.getElementById('player-telop');
@@ -639,7 +689,11 @@
       video.pause();
       video.onended = null;
       overlay.classList.remove('open');
+      video.removeAttribute('src');
+      video.load();
+      const previous = currentPlayerItem;
       currentPlayerItem = null;
+      if (previous && !previous._cardEl?.isConnected) releaseItem(previous);
     }
 
     document.getElementById('player-close-btn').addEventListener('click', closePlayer);
@@ -677,7 +731,7 @@
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       await markDownloaded(item.key);
       item.clip.downloaded = true;
-      if (item._cardEl) item._cardEl.classList.add('downloaded');
+      showDownloaded(item._cardEl);
     }
 
     // 未保存クリップをまとめて1つのZIPにして、ダウンロードは1回だけにする
@@ -723,6 +777,8 @@
 
     function backToRec() {
       closePlayer();
+      ++listGeneration;
+      clearMountedRows();
       document.getElementById('screen-list').style.display = 'none';
       document.getElementById('screen-rec').style.display = 'flex';
       if (stream && stream.active) { videoEl.srcObject = stream; videoEl.play().catch(()=>{}); }
