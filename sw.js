@@ -1,4 +1,4 @@
-const CACHE='exhibition-offline-v25';
+const CACHE='exhibition-offline-v26-modes';
 const FILES=['./ExhibitionMemo_v23.html','./offline-drive.js'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES))));
 self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
