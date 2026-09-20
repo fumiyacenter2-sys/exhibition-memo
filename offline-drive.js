@@ -1,6 +1,47 @@
 // Local-first recording and authenticated, retryable Drive backup.
 const syncSettingsKey = 'exhibition-drive-settings';
-let driveSettings = JSON.parse(localStorage.getItem(syncSettingsKey) || '{}');
+// Preserve old credentials separately; neither new account inherits them.
+const profilesKey = 'exhibition-drive-profiles-v1';
+let profiles = JSON.parse(localStorage.getItem(profilesKey) || '{"work":{},"personal":{}}');
+let activeMode = localStorage.getItem('exhibition-mode') === 'personal' ? 'personal' : 'work';
+let recordingMode = null;
+const modeLabels = {work:'仕事',personal:'私用'};
+const modeAccounts = {work:'peroteramoto',personal:'janpicard'};
+let settingsMode = activeMode;
+let driveSettings = profiles[activeMode];
+const modeBar=document.createElement('div');
+modeBar.id='mode-bar';
+modeBar.innerHTML='<button data-mode="work">仕事 · peroteramoto</button><button data-mode="personal">私用 · janpicard</button>';
+document.getElementById('screen-rec').prepend(modeBar);
+function updateModeUI(){
+ document.body.dataset.mode=activeMode;
+ modeBar.querySelectorAll('button').forEach(button=>{
+   button.setAttribute('aria-pressed',String(button.dataset.mode===activeMode));
+   button.disabled=!!recordingMode;
+ });
+ document.querySelector('#list-header h2').textContent=modeLabels[activeMode]+'のクリップ';
+ document.getElementById('clear-btn').textContent=modeLabels[activeMode]+'を全削除';
+ document.querySelector('#clear-dialog p').textContent=modeLabels[activeMode]+'の端末内動画をすべて削除しますか？未同期の動画も消えます。ドライブ内の動画は残ります。';
+}
+async function getModeKeys(mode=activeMode){
+ return new Promise((resolve,reject)=>{
+   const keys=[],tx=db.transaction(STORE,'readonly');
+   const req=tx.objectStore(STORE).openCursor();
+   req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;if((cursor.value.mode || 'work')===mode)keys.push(cursor.key);cursor.continue();};
+   tx.oncomplete=()=>resolve(keys);tx.onerror=()=>reject(tx.error);
+ });
+}
+async function refreshModeCount(){
+ if(!db)return;
+ const mode=activeMode,keys=await getModeKeys(mode);
+ if(activeMode===mode){clipCount=keys.length;countLabel.textContent=modeLabels[mode]+' · '+clipCount+' クリップ';}
+}
+modeBar.addEventListener('click',async event=>{
+ const mode=event.target.dataset.mode;
+ if(!mode || recordingMode || mode===activeMode)return;
+ activeMode=mode;localStorage.setItem('exhibition-mode',mode);driveSettings=profiles[mode];
+ updateModeUI();await refreshModeCount();syncDrive();
+});
 let syncing = false, recordingStream = null, zoom = 1, paintFrame = 0;
 const canvas = document.createElement('canvas');
 const ctx = canvas.getContext('2d');
@@ -15,13 +56,16 @@ statusBar.id = 'sync-status';
 zoomBar.before(statusBar);
 const settings = document.createElement('div');
 settings.className = 'dialog'; settings.id = 'drive-dialog';
-settings.innerHTML = `<p>Googleドライブへの保存</p>
+settings.innerHTML = `<p id="settings-title">Googleドライブへの保存</p>
 <label>GASのウェブアプリURL<input id="gas-url" type="url" placeholder="https://script.google.com/macros/s/…/exec"></label>
 <label>接続キー<input id="gas-token" type="password" autocomplete="off"></label>
 <p style="font-size:12px">空欄でも端末に保存して撮影できます。接続後に送信します。</p>
 <div class="btn-row"><button class="btn-ok" id="settings-save">保存して同期</button><button class="btn-cancel" id="settings-close">閉じる</button></div>`;
 document.body.append(settings);
 document.getElementById('drive-settings').onclick = () => {
+ settingsMode=activeMode;
+ driveSettings=profiles[settingsMode];
+ document.getElementById('settings-title').textContent=modeLabels[settingsMode]+'の保存先 · '+modeAccounts[settingsMode];
  document.getElementById('gas-url').value=driveSettings.url || '';
  document.getElementById('gas-token').value=driveSettings.token || '';
  openDialog('drive-dialog');
@@ -30,7 +74,10 @@ document.getElementById('settings-close').onclick=()=>closeDialog('drive-dialog'
 document.getElementById('settings-save').onclick=()=>{
  const url=document.getElementById('gas-url').value.trim(), token=document.getElementById('gas-token').value.trim();
  if(url && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) { alert('GASの /exec で終わるURLを入力してください');return; }
- driveSettings={url,token};localStorage.setItem(syncSettingsKey,JSON.stringify(driveSettings));
+ const other=profiles[settingsMode==='work'?'personal':'work'];
+ if(url && url===other.url){alert('仕事と私用には、それぞれ別のGASのURLを設定してください');return;}
+ if(profiles[settingsMode].url && profiles[settingsMode].url!==url && !confirm('今後の未同期動画の保存先を変更します。保存済みの動画は移動しません。よろしいですか？'))return;
+ driveSettings={url,token};profiles[settingsMode]=driveSettings;localStorage.setItem(profilesKey,JSON.stringify(profiles));
  closeDialog('drive-dialog');syncDrive();
 };
 function setZoom(value) { zoom=Math.min(4,Math.max(1,value));document.getElementById('zoom-value').textContent=zoom.toFixed(1)+'×'; }
@@ -57,6 +104,7 @@ drawZoom();
 const originalStartRec=startRec;
 startRec=function(){
  if(!canvas.captureStream){alert('このブラウザはズーム録画に対応していません。ブラウザを更新してください。');return;}
+ recordingMode=activeMode;updateModeUI();
  const cameraStream=stream;
  recordingStream=canvas.captureStream(30);
  cameraStream.getAudioTracks().forEach(track=>recordingStream.addTrack(track.clone()));
@@ -75,10 +123,10 @@ function putClip(key,changes){
    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
  });
 }
-saveToDb=function(blob,filename){
+saveToDb=function(blob,filename,mode=recordingMode || activeMode){
  return new Promise((resolve,reject)=>{
    const tx=db.transaction(STORE,'readwrite');
-   const req=tx.objectStore(STORE).add({blob,filename,downloaded:false,syncId:crypto.randomUUID(),driveId:null});
+   const req=tx.objectStore(STORE).add({blob,filename,mode,downloaded:false,syncId:crypto.randomUUID(),driveId:null});
    tx.oncomplete=()=>resolve(req.result);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
  });
 };
@@ -86,8 +134,8 @@ clipDone=async function(){
  try{
    const mime=chunks[0]?.type || 'video/webm',blob=new Blob(chunks,{type:mime});
    await saveToDb(blob,`記録_${getTimestamp()}_${clipCount+1}_${randStr()}.${getExt(mime)}`);
-   clipCount++;countLabel.textContent=`${clipCount} クリップ`;
-   savedMsg.textContent='端末に保存しました';savedMsg.style.display='block';
+   await refreshModeCount();
+   savedMsg.textContent=modeLabels[recordingMode || activeMode]+' · 端末に保存しました';savedMsg.style.display='block';
    syncDrive();
  }catch(error){
    // Keep chunks in memory and offer a device download if IndexedDB is full.
@@ -95,15 +143,16 @@ clipDone=async function(){
    alert('端末内への保存に失敗しました。空き容量を確認してください。動画のダウンロードを試みました。');
  }finally{
    recordingStream?.getTracks().forEach(t=>t.stop());recordingStream=null;
+   recordingMode=null;updateModeUI();
    recBtn.classList.remove('recording');recBtn.disabled=false;
    document.getElementById('flip-btn').disabled=false;document.getElementById('exit-btn').disabled=false;
    recBadge.style.display='none';countDown.style.display='none';progressEl.style.width='0%';
  }
 };
-async function driveCall(payload){
+async function driveCall(payload,target=driveSettings){
  const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),90000);
  try{
-   const response=await fetch(driveSettings.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,token:driveSettings.token}),signal:controller.signal,redirect:'follow',credentials:'omit'});
+   const response=await fetch(target.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,token:target.token}),signal:controller.signal,redirect:'follow',credentials:'omit'});
    if(!response.ok)throw Error('通信エラー');
    const data=await response.json();if(!data.ok)throw Error(data.error || '保存失敗');return data;
  }finally{clearTimeout(timeout);}
@@ -125,20 +174,24 @@ function blobBase64(blob){
 async function syncDrive(){
  if(syncing || !db)return;
  if(!navigator.onLine){statusBar.textContent='オフライン · 端末に保存して接続後に同期';return;}
- if(!driveSettings.url || !driveSettings.token){statusBar.textContent='端末に保存 · ドライブは保存設定から接続';return;}
  syncing=true;
  try{
-   const keys=await getAllKeys();let pending=0;
+   const keys=await getAllKeys();let pending=0,waiting=0;
    for(const key of keys){
      const clip=await readClip(key);if(!clip || clip.driveId)continue;
+     const mode=clip.mode || 'work';
+     const target={...profiles[mode]};
+     if(!target.url || !target.token){waiting++;continue;}
      pending++;
      if(!clip.syncId){clip.syncId=crypto.randomUUID();await putClip(key,{syncId:clip.syncId});}
-     statusBar.textContent=`ドライブへ保存中（${pending}本目）…`;
-     const data=await driveCall({action:'upload',id:clip.syncId,name:clip.filename,mime:clip.blob.type,base64:await blobBase64(clip.blob)});
-     if(!data.id || data.syncId!==clip.syncId)throw Error('保存確認に失敗');
-     await putClip(key,{driveId:data.id});
+     statusBar.textContent=`${modeLabels[mode]}のドライブへ保存中（${pending}本目）…`;
+     try{
+       const data=await driveCall({action:'upload',id:clip.syncId,name:clip.filename,mime:clip.blob.type,base64:await blobBase64(clip.blob)},target);
+       if(!data.id || data.syncId!==clip.syncId)throw Error('保存確認に失敗');
+       await putClip(key,{driveId:data.id,driveDestination:target.url,mode});
+     }catch(error){waiting++;}
    }
-   statusBar.textContent='ドライブへの保存を確認しました';
+   statusBar.textContent=waiting?`端末に保存済み · ${waiting}本が同期待ち（各区分の保存設定・通信を確認）`:'ドライブ未同期の動画はありません';
  }catch(error){statusBar.textContent='端末に保存済み · 同期待ち（接続・設定を確認）';}
  finally{syncing=false;}
 }
@@ -155,7 +208,12 @@ const exitButton=document.getElementById('exit-btn');
 exitButton.replaceWith(exitButton.cloneNode(true));
 document.getElementById('exit-btn').onclick=()=>{if(!syncing)doExit();else alert('ドライブへ保存中です。完了を待つか、次回起動時に同期を再開できます。');};
 // Deliberate deletion remains confirmed, including local pending backups.
-document.querySelector('#clear-dialog p').innerHTML='端末内の全動画を削除しますか？<br>ドライブ未保存の動画も消えます。ドライブ内の動画は削除しません。';
+clearDB=async function(){
+ const keys=await getModeKeys();
+ await new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');keys.forEach(key=>tx.objectStore(STORE).delete(key));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+};
+updateModeUI();
+setTimeout(refreshModeCount,1200);
 if('serviceWorker' in navigator && window.isSecureContext && location.protocol!=='file:'){
  navigator.serviceWorker.register('./sw.js').then(()=>navigator.serviceWorker.ready).then(()=>{
    statusBar.textContent='オフライン起動の準備ができました';
