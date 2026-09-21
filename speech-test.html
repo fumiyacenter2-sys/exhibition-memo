@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文字起こしだけのテスト</title>
+<style>body{margin:0;background:#14141b;color:white;font:18px/1.6 sans-serif;padding:24px}main{max-width:600px;margin:auto}h1{font-size:25px}button{font:inherit;padding:14px;border-radius:12px;border:0;background:#ffd000;color:#111;margin:8px 8px 8px 0}button:disabled{opacity:.5}#text{white-space:pre-wrap;overflow-wrap:anywhere;min-height:120px;background:#252536;padding:18px;border-radius:12px;font-size:24px}#status{color:#ffe16b}#events{font-size:14px;white-space:pre-wrap}a{color:#aaccff}</style></head>
+<body><main><h1>文字起こしだけのテスト</h1><p>先に撮影アプリのタブを閉じてください。このページはカメラも録画も使いません。</p><p>開始して「今日は文字起こしのテストです」と話してください。約10秒で終了します。</p><p style="font-size:14px">音声がブラウザの認識サービスへ送られる場合があります。このテストでは動画やメモを保存しません。</p>
+<button id="start">テスト開始</button><button id="stop" disabled>終了</button>
+<p id="status" role="status">開始待ち</p><div id="text">ここに聞き取った文字を表示します</div><pre id="events"></pre>
+<p><a href="ExhibitionMemo_v23.html">撮影アプリに戻る</a></p></main>
+<script>
+const API=window.SpeechRecognition || window.webkitSpeechRecognition;
+const start=document.getElementById('start'),stop=document.getElementById('stop'),statusEl=document.getElementById('status'),textEl=document.getElementById('text'),events=document.getElementById('events');
+let current=null;
+function log(message){events.textContent+=message+'\n';}
+function complete(s){if(current!==s)return;clearTimeout(s.timer);clearTimeout(s.timeout);current=null;start.disabled=!API;stop.disabled=true;}
+function finish(){const s=current;if(!s || s.stopping)return;s.stopping=true;clearTimeout(s.timer);log('終了を要求しました');s.timeout=setTimeout(()=>{if(current!==s)return;statusEl.textContent=s.error || '終了応答がありませんでした';complete(s);try{s.rec.abort();}catch(e){}},2000);try{s.rec.stop();}catch(e){statusEl.textContent='終了エラー：'+e.name;complete(s);}}
+if(!API){statusEl.textContent='このブラウザは音声認識に対応していません。';start.disabled=true;}
+start.onclick=()=>{
+ if(current)return;
+ if(!navigator.onLine){statusEl.textContent='ネットに接続してから試してください。';return;}
+ const s={rec:new API(),text:'',error:'',stopping:false};current=s;
+ start.disabled=true;stop.disabled=false;events.textContent='';textEl.textContent='まだ文字は届いていません';statusEl.textContent='認識サービスの開始待ち';
+ const r=s.rec;r.lang='ja-JP';r.continuous=true;r.interimResults=true;
+ r.onstart=()=>{if(current===s){statusEl.textContent='聞き取り中：話しかけてください';log('認識開始');}};
+ r.onaudiostart=()=>{if(current===s)log('マイク接続');};
+ r.onspeechstart=()=>{if(current===s)log('声を検出');};
+ r.onresult=e=>{if(current!==s)return;s.text=Array.from(e.results,x=>x[0].transcript).join('');textEl.textContent=s.text;log('文字を受信');};
+ r.onerror=e=>{if(current!==s)return;s.error='文字起こしエラー：'+e.error;statusEl.textContent=s.error;log(s.error);};
+ r.onend=()=>{if(current!==s)return;log('認識終了');statusEl.textContent=s.error || (s.text?'文字を取得できました':'文字を取得せずに終了しました');complete(s);};
+ s.timer=setTimeout(finish,10000);
+ try{r.start();}catch(e){statusEl.textContent='開始できません：'+e.name;complete(s);}
+};
+stop.onclick=finish;
+window.addEventListener('pagehide',()=>{const s=current;if(s){complete(s);try{s.rec.abort();}catch(e){}}});
+</script></body></html>
