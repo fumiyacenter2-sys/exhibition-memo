@@ -62,6 +62,39 @@ settings.innerHTML = `<p id="settings-title">Googleドライブへの保存</p>
 <p style="font-size:12px">空欄でも端末に保存して撮影できます。接続後に送信します。</p>
 <div class="btn-row"><button class="btn-ok" id="settings-save">保存して同期</button><button class="btn-cancel" id="settings-close">閉じる</button></div>`;
 document.body.append(settings);
+// Optional text: empty notes are valid; speech input is the keyboard's own feature.
+const noteDialog=document.createElement('div');
+noteDialog.id='note-dialog';noteDialog.className='dialog';
+noteDialog.setAttribute('role','dialog');noteDialog.setAttribute('aria-modal','true');noteDialog.setAttribute('aria-labelledby','note-title');
+noteDialog.innerHTML='<p id="note-title">動画のメモ</p><textarea id="note-input" maxlength="2000" placeholder="空欄でも保存できます。後から入力・修正できます。"></textarea><p style="font-size:12px">キーボードのマイクから音声入力もできます。<br>一覧には冒頭20文字を表示します。</p><p id="note-feedback" role="status"></p><div class="btn-row"><button type="button" id="note-save" class="btn-ok">メモを保存</button><button type="button" id="note-cancel" class="btn-cancel">キャンセル</button></div>';
+document.body.append(noteDialog);
+let noteTarget=null;
+function openClipNote(item,card){
+ if(!item.clip)return;
+ noteTarget={item,card};
+ document.getElementById('note-input').value=item.clip.note ?? item.clip.transcript ?? '';
+ document.getElementById('note-title').textContent=modeLabels[item.clip.mode || 'work']+' · '+nameForDisplay(item.clip.filename);
+ document.getElementById('note-feedback').textContent='';
+ openDialog('note-dialog');document.getElementById('note-input').focus();
+}
+document.getElementById('note-cancel').onclick=()=>{closeDialog('note-dialog');noteTarget=null;};
+document.getElementById('note-save').onclick=async()=>{
+ if(!noteTarget)return;
+ const {item,card}=noteTarget;
+ const note=document.getElementById('note-input').value;
+ const noteVersion=crypto.randomUUID();
+ const button=document.getElementById('note-save');button.disabled=true;
+ document.getElementById('note-cancel').disabled=true;
+ try{
+   await putClip(item.key,{note,noteVersion});
+   item.clip.note=note;item.clip.noteVersion=noteVersion;
+   const label=note.replace(/\s+/g,' ').trim();
+   card.querySelector('.clip-text').textContent=label ? [...label].slice(0,20).join('')+([...label].length>20?'…':'') : '＋ メモを入力';
+   card.querySelector('.clip-text').setAttribute('aria-label',label?'メモを編集：'+label:'メモを入力');card.title=note;
+   closeDialog('note-dialog');noteTarget=null;syncDrive();
+ }catch(error){document.getElementById('note-feedback').textContent='保存できませんでした。入力は残っています。再度お試しください。';}
+ finally{button.disabled=false;document.getElementById('note-cancel').disabled=false;}
+};
 document.getElementById('drive-settings').onclick = () => {
  settingsMode=activeMode;
  driveSettings=profiles[settingsMode];
@@ -178,17 +211,29 @@ async function syncDrive(){
  try{
    const keys=await getAllKeys();let pending=0,waiting=0;
    for(const key of keys){
-     const clip=await readClip(key);if(!clip || clip.driveId)continue;
+     const clip=await readClip(key);if(!clip)continue;
+     const notePending=clip.noteVersion && clip.noteVersion!==clip.noteSyncedVersion;
+     if(clip.driveId && !notePending)continue;
      const mode=clip.mode || 'work';
      const target={...profiles[mode]};
      if(!target.url || !target.token){waiting++;continue;}
+     // Never send an old account's file identifier to a newly selected account.
+     if(clip.driveId && clip.driveDestination!==target.url){waiting++;continue;}
      pending++;
      if(!clip.syncId){clip.syncId=crypto.randomUUID();await putClip(key,{syncId:clip.syncId});}
      statusBar.textContent=`${modeLabels[mode]}のドライブへ保存中（${pending}本目）…`;
      try{
-       const data=await driveCall({action:'upload',id:clip.syncId,name:clip.filename,mime:clip.blob.type,base64:await blobBase64(clip.blob)},target);
+       if(clip.driveId){
+         const data=await driveCall({action:'note',id:clip.syncId,fileId:clip.driveId,note:clip.note ?? '',noteVersion:clip.noteVersion},target);
+         if(data.noteVersion!==clip.noteVersion)throw Error('メモの保存確認に失敗');
+         await putClip(key,{noteSyncedVersion:clip.noteVersion});continue;
+       }
+       const data=await driveCall({action:'upload',id:clip.syncId,name:clip.filename,mime:clip.blob.type,base64:await blobBase64(clip.blob),note:clip.note ?? '',noteVersion:clip.noteVersion || null},target);
        if(!data.id || data.syncId!==clip.syncId)throw Error('保存確認に失敗');
-       await putClip(key,{driveId:data.id,driveDestination:target.url,mode});
+       const changes={driveId:data.id,driveDestination:target.url,mode};
+       if(clip.noteVersion && data.noteVersion===clip.noteVersion)changes.noteSyncedVersion=clip.noteVersion;
+       else if(clip.noteVersion)waiting++;
+       await putClip(key,changes);
      }catch(error){waiting++;}
    }
    statusBar.textContent=waiting?`端末に保存済み · ${waiting}本が同期待ち（各区分の保存設定・通信を確認）`:'ドライブ未同期の動画はありません';
