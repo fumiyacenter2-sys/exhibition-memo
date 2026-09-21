@@ -57,20 +57,34 @@ zoomBar.before(statusBar);
 const SpeechAPI=window.SpeechRecognition || window.webkitSpeechRecognition;
 const speechBar=document.createElement('div');
 speechBar.style.cssText='padding:5px 12px;background:#14141b;flex-shrink:0;font-size:12px;line-height:1.4';
-speechBar.innerHTML='<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="live-speech" style="width:22px;height:22px">撮影中の文字起こしを試す</label><div id="speech-status" role="status">音声がブラウザの認識サービスへ送られる場合があります。</div>';
+speechBar.innerHTML='<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="live-speech" style="width:22px;height:22px">撮影中の文字起こしを試す</label><div>音声がブラウザの認識サービスへ送られる場合があります。</div>';
 zoomBar.before(speechBar);
+// DOM overlay only: this text is not painted into the recorded canvas.
+const speechOverlay=document.createElement('div');
+speechOverlay.id='speech-overlay';
+speechOverlay.style.cssText='position:absolute;left:10px;right:10px;bottom:12px;z-index:5;pointer-events:none;background:rgba(0,0,0,.8);border:1px solid #f5c900;border-radius:12px;padding:12px;color:white;max-height:45%;overflow:hidden';
+speechOverlay.innerHTML='<div style="font-size:12px;color:#f5c900;margin-bottom:4px">文字起こし・画面表示版</div><div id="speech-status" role="status" style="font-size:16px;line-height:1.5">聞き取り開始待ち：撮影すると開始します。</div><div id="speech-transcript" style="font-size:22px;font-weight:bold;line-height:1.5;overflow-wrap:anywhere;margin-top:6px;white-space:pre-wrap"></div>';
+document.getElementById('camera-wrap').append(speechOverlay);
 const speechToggle=document.getElementById('live-speech');
 const speechStatus=document.getElementById('speech-status');
+const speechTranscript=document.getElementById('speech-transcript');
 speechToggle.checked=!!SpeechAPI && localStorage.getItem('exhibition-live-speech')==='on';
 speechToggle.disabled=!SpeechAPI;
 if(!SpeechAPI)speechStatus.textContent='このブラウザは未対応です。撮影後のメモ入力を使えます。';
-speechToggle.onchange=()=>localStorage.setItem('exhibition-live-speech',speechToggle.checked?'on':'off');
+speechOverlay.hidden=!speechToggle.checked;
+speechToggle.onchange=()=>{
+ localStorage.setItem('exhibition-live-speech',speechToggle.checked?'on':'off');
+ speechOverlay.hidden=!speechToggle.checked;
+ speechStatus.textContent='聞き取り開始待ち：撮影すると開始します。';
+ speechTranscript.textContent='';
+};
 let liveSpeechSession=null;
 function beginLiveSpeech(){
  liveSpeechSession=null;
  if(!speechToggle.checked || !SpeechAPI)return;
+ speechTranscript.textContent='';
  if(!navigator.onLine){speechStatus.textContent='圏外：動画を保存します。メモは後から入力できます。';return;}
- const session={recognition:null,text:'',ended:false,closed:false,error:false,finish:null,stopping:false,retries:0,retryTimer:null};
+ const session={recognition:null,text:'',ended:false,closed:false,error:false,finish:null,stopping:false,retries:0,retryTimer:null,startTimer:null};
  liveSpeechSession=session;
  function listen(){
  const prefix=session.text;
@@ -78,6 +92,19 @@ function beginLiveSpeech(){
  try{
    const recognition=new SpeechAPI();session.recognition=recognition;
    recognition.lang='ja-JP';recognition.continuous=true;recognition.interimResults=true;
+   recognition.onstart=()=>{
+     if(session.closed || session.stopping)return;
+     clearTimeout(session.startTimer);
+     speechStatus.textContent='聞き取り中：話しかけてください。';
+   };
+   recognition.onaudiostart=()=>{
+     if(session.closed || session.stopping || session.error)return;
+     clearTimeout(session.startTimer);
+     speechStatus.textContent='マイク接続済み：文字を待っています。';
+   };
+   recognition.onspeechstart=()=>{
+     if(!session.closed && !session.stopping && !session.error)speechStatus.textContent='声を検出しました：文字を待っています。';
+   };
    recognition.onresult=event=>{
      if(session.closed)return;
      let finalText='',interim='';
@@ -87,15 +114,19 @@ function beginLiveSpeech(){
      }
      // Preserve the latest partial result if Android ends before finalizing it.
      session.text=(prefix+finalText+interim).slice(0,2000);
-     speechStatus.textContent=(finalText+interim).slice(0,80) || '聞き取り中…';
+     clearTimeout(session.startTimer);
+     speechTranscript.textContent=session.text.slice(-160);
+     speechStatus.textContent=interim?'聞き取り中（文字はまだ確定前です）':'聞き取り中';
    };
    recognition.onerror=event=>{
      if(session.closed)return;session.error=event.error || 'unknown';
+     clearTimeout(session.startTimer);
      const reasons={'not-allowed':'音声認識が許可されていません','service-not-allowed':'音声認識サービスを利用できません','audio-capture':'文字起こし側でマイクを使えません','no-speech':'文字起こし側に声が届きませんでした','network':'音声認識サービスとの通信に失敗しました','aborted':'音声認識が中断されました'};
      speechStatus.textContent=(reasons[session.error] || '文字起こしを継続できません')+'（'+session.error+'）。メモは後から入力できます。';
    };
    recognition.onend=()=>{
      if(session.closed)return;
+     clearTimeout(session.startTimer);
      session.ended=true;
      if(session.finish){session.finish();return;}
      if(!session.stopping && mediaRecorder?.state==='recording' && session.retries<1 && (!session.error || session.error==='no-speech')){
@@ -106,15 +137,19 @@ function beginLiveSpeech(){
        },400);
      }else if(!session.error){speechStatus.textContent=session.text?'聞き取りが終了しました。取得した文字は保存します。':'聞き取りが途中で終了し、文字を取得できませんでした。';}
    };
-   speechStatus.textContent='聞き取りを開始します…';recognition.start();
- }catch(error){session.error=true;session.ended=true;speechStatus.textContent='文字起こしを開始できません。メモは後から入力できます。';}
+   speechStatus.textContent='聞き取り開始待ち：認識サービスに接続しています…';
+   session.startTimer=setTimeout(()=>{
+     if(!session.closed && !session.stopping && !session.ended && !session.error)speechStatus.textContent='認識サービスの開始応答がありません。動画の撮影は続いています。';
+   },3000);
+   recognition.start();
+ }catch(error){clearTimeout(session.startTimer);session.error=true;session.ended=true;speechStatus.textContent='文字起こしを開始できません（'+(error.name || '不明')+'）。メモは後から入力できます。';}
  }
  listen();
 }
 async function finishLiveSpeech(){
  const session=liveSpeechSession;liveSpeechSession=null;
  if(!session)return '';
- session.stopping=true;clearTimeout(session.retryTimer);
+ session.stopping=true;clearTimeout(session.retryTimer);clearTimeout(session.startTimer);
  if(!session.ended){
    await new Promise(resolve=>{
      const timeout=setTimeout(resolve,1500);
