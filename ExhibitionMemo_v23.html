@@ -621,6 +621,11 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
     }
 
     async function openList() {
+      if (recBtn.classList.contains('recording')) return;
+      // Give the microphone back to the phone's keyboard dictation.
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      videoEl.srcObject = null;
+      recBtn.disabled = true;
       document.getElementById('screen-rec').style.display = 'none';
       document.getElementById('screen-list').style.display = 'flex';
       await renderList();
@@ -811,13 +816,13 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
       }
     }
 
-    function backToRec() {
+    async function backToRec() {
       closePlayer();
       ++listGeneration;
       clearMountedRows();
       document.getElementById('screen-list').style.display = 'none';
       document.getElementById('screen-rec').style.display = 'flex';
-      if (stream && stream.active) { videoEl.srcObject = stream; videoEl.play().catch(()=>{}); }
+      await initCamera();
     }
 
     async function doClear() {
