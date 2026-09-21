@@ -70,8 +70,11 @@ function beginLiveSpeech(){
  liveSpeechSession=null;
  if(!speechToggle.checked || !SpeechAPI)return;
  if(!navigator.onLine){speechStatus.textContent='圏外：動画を保存します。メモは後から入力できます。';return;}
- const session={recognition:null,text:'',ended:false,closed:false,error:false,finish:null};
+ const session={recognition:null,text:'',ended:false,closed:false,error:false,finish:null,stopping:false,retries:0,retryTimer:null};
  liveSpeechSession=session;
+ function listen(){
+ const prefix=session.text;
+ session.ended=false;session.error=false;
  try{
    const recognition=new SpeechAPI();session.recognition=recognition;
    recognition.lang='ja-JP';recognition.continuous=true;recognition.interimResults=true;
@@ -82,20 +85,36 @@ function beginLiveSpeech(){
        if(event.results[i].isFinal)finalText+=event.results[i][0].transcript;
        else interim+=event.results[i][0].transcript;
      }
-     session.text=finalText.slice(0,2000);
+     // Preserve the latest partial result if Android ends before finalizing it.
+     session.text=(prefix+finalText+interim).slice(0,2000);
      speechStatus.textContent=(finalText+interim).slice(0,80) || '聞き取り中…';
    };
    recognition.onerror=event=>{
-     if(session.closed)return;session.error=true;
-     speechStatus.textContent=event.error==='not-allowed'?'音声認識が許可されていません。メモは後から入力できます。':'文字起こしができませんでした。メモは後から入力できます。';
+     if(session.closed)return;session.error=event.error || 'unknown';
+     const reasons={'not-allowed':'音声認識が許可されていません','service-not-allowed':'音声認識サービスを利用できません','audio-capture':'文字起こし側でマイクを使えません','no-speech':'文字起こし側に声が届きませんでした','network':'音声認識サービスとの通信に失敗しました','aborted':'音声認識が中断されました'};
+     speechStatus.textContent=(reasons[session.error] || '文字起こしを継続できません')+'（'+session.error+'）。メモは後から入力できます。';
    };
-   recognition.onend=()=>{session.ended=true;if(session.finish)session.finish();};
+   recognition.onend=()=>{
+     if(session.closed)return;
+     session.ended=true;
+     if(session.finish){session.finish();return;}
+     if(!session.stopping && mediaRecorder?.state==='recording' && session.retries<1 && (!session.error || session.error==='no-speech')){
+       session.retries++;
+       speechStatus.textContent='聞き取りが止まったため、もう一度接続します…';
+       session.retryTimer=setTimeout(()=>{
+         if(!session.closed && !session.stopping && mediaRecorder?.state==='recording')listen();
+       },400);
+     }else if(!session.error){speechStatus.textContent=session.text?'聞き取りが終了しました。取得した文字は保存します。':'聞き取りが途中で終了し、文字を取得できませんでした。';}
+   };
    speechStatus.textContent='聞き取りを開始します…';recognition.start();
  }catch(error){session.error=true;session.ended=true;speechStatus.textContent='文字起こしを開始できません。メモは後から入力できます。';}
+ }
+ listen();
 }
 async function finishLiveSpeech(){
  const session=liveSpeechSession;liveSpeechSession=null;
  if(!session)return '';
+ session.stopping=true;clearTimeout(session.retryTimer);
  if(!session.ended){
    await new Promise(resolve=>{
      const timeout=setTimeout(resolve,1500);
