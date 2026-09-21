@@ -54,6 +54,61 @@ document.getElementById('screen-rec').insertBefore(zoomBar, document.getElementB
 const statusBar = document.createElement('div');
 statusBar.id = 'sync-status';
 zoomBar.before(statusBar);
+const SpeechAPI=window.SpeechRecognition || window.webkitSpeechRecognition;
+const speechBar=document.createElement('div');
+speechBar.style.cssText='padding:5px 12px;background:#14141b;flex-shrink:0;font-size:12px;line-height:1.4';
+speechBar.innerHTML='<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="live-speech" style="width:22px;height:22px">撮影中の文字起こしを試す</label><div id="speech-status" role="status">音声がブラウザの認識サービスへ送られる場合があります。</div>';
+zoomBar.before(speechBar);
+const speechToggle=document.getElementById('live-speech');
+const speechStatus=document.getElementById('speech-status');
+speechToggle.checked=!!SpeechAPI && localStorage.getItem('exhibition-live-speech')==='on';
+speechToggle.disabled=!SpeechAPI;
+if(!SpeechAPI)speechStatus.textContent='このブラウザは未対応です。撮影後のメモ入力を使えます。';
+speechToggle.onchange=()=>localStorage.setItem('exhibition-live-speech',speechToggle.checked?'on':'off');
+let liveSpeechSession=null;
+function beginLiveSpeech(){
+ liveSpeechSession=null;
+ if(!speechToggle.checked || !SpeechAPI)return;
+ if(!navigator.onLine){speechStatus.textContent='圏外：動画を保存します。メモは後から入力できます。';return;}
+ const session={recognition:null,text:'',ended:false,closed:false,error:false,finish:null};
+ liveSpeechSession=session;
+ try{
+   const recognition=new SpeechAPI();session.recognition=recognition;
+   recognition.lang='ja-JP';recognition.continuous=true;recognition.interimResults=true;
+   recognition.onresult=event=>{
+     if(session.closed)return;
+     let finalText='',interim='';
+     for(let i=0;i<event.results.length;i++){
+       if(event.results[i].isFinal)finalText+=event.results[i][0].transcript;
+       else interim+=event.results[i][0].transcript;
+     }
+     session.text=finalText.slice(0,2000);
+     speechStatus.textContent=(finalText+interim).slice(0,80) || '聞き取り中…';
+   };
+   recognition.onerror=event=>{
+     if(session.closed)return;session.error=true;
+     speechStatus.textContent=event.error==='not-allowed'?'音声認識が許可されていません。メモは後から入力できます。':'文字起こしができませんでした。メモは後から入力できます。';
+   };
+   recognition.onend=()=>{session.ended=true;if(session.finish)session.finish();};
+   speechStatus.textContent='聞き取りを開始します…';recognition.start();
+ }catch(error){session.error=true;session.ended=true;speechStatus.textContent='文字起こしを開始できません。メモは後から入力できます。';}
+}
+async function finishLiveSpeech(){
+ const session=liveSpeechSession;liveSpeechSession=null;
+ if(!session)return '';
+ if(!session.ended){
+   await new Promise(resolve=>{
+     const timeout=setTimeout(resolve,1500);
+     session.finish=()=>{clearTimeout(timeout);resolve();};
+     try{session.recognition.stop();}catch(error){session.finish();}
+   });
+ }
+ session.closed=true;
+ try{session.recognition?.abort();}catch(error){}
+ if(session.text)speechStatus.textContent='文字をメモに保存します。あとで修正できます。';
+ else if(!session.error)speechStatus.textContent='文字を取得できませんでした。空欄のまま保存できます。';
+ return session.text.trim();
+}
 const settings = document.createElement('div');
 settings.className = 'dialog'; settings.id = 'drive-dialog';
 settings.innerHTML = `<p id="settings-title">Googleドライブへの保存</p>
@@ -145,6 +200,8 @@ startRec=function(){
  try { originalStartRec(); } finally { stream=cameraStream; }
  document.getElementById('flip-btn').disabled=true;
  document.getElementById('exit-btn').disabled=true;
+ speechToggle.disabled=true;
+ beginLiveSpeech();
 };
 // Existing click listeners captured the old function; replace the record button listener.
 recBtn.removeEventListener('click',originalStartRec);
@@ -166,7 +223,13 @@ saveToDb=function(blob,filename,mode=recordingMode || activeMode){
 clipDone=async function(){
  try{
    const mime=chunks[0]?.type || 'video/webm',blob=new Blob(chunks,{type:mime});
-   await saveToDb(blob,`記録_${getTimestamp()}_${clipCount+1}_${randStr()}.${getExt(mime)}`);
+   // Commit the video first; recognition failure must never discard it.
+   const key=await saveToDb(blob,`記録_${getTimestamp()}_${clipCount+1}_${randStr()}.${getExt(mime)}`);
+   const note=await finishLiveSpeech();
+   if(note){
+     try{await putClip(key,{note,noteVersion:crypto.randomUUID()});}
+     catch(error){speechStatus.textContent='動画は保存済みですが、文字の保存に失敗しました。';}
+   }
    await refreshModeCount();
    savedMsg.textContent=modeLabels[recordingMode || activeMode]+' · 端末に保存しました';savedMsg.style.display='block';
    syncDrive();
@@ -175,6 +238,8 @@ clipDone=async function(){
    autoDownloadToDevice(new Blob(chunks,{type:chunks[0]?.type || 'video/webm'}),`救出_${getTimestamp()}.${getExt(chunks[0]?.type || '')}`);
    alert('端末内への保存に失敗しました。空き容量を確認してください。動画のダウンロードを試みました。');
  }finally{
+   if(liveSpeechSession)await finishLiveSpeech();
+   speechToggle.disabled=!SpeechAPI;
    recordingStream?.getTracks().forEach(t=>t.stop());recordingStream=null;
    recordingMode=null;updateModeUI();
    recBtn.classList.remove('recording');recBtn.disabled=false;
