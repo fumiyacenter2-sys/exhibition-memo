@@ -63,7 +63,7 @@ zoomBar.before(speechBar);
 const speechOverlay=document.createElement('div');
 speechOverlay.id='speech-overlay';
 speechOverlay.style.cssText='position:absolute;left:10px;right:10px;bottom:12px;z-index:5;pointer-events:none;background:rgba(0,0,0,.8);border:1px solid #f5c900;border-radius:12px;padding:12px;color:white;max-height:45%;overflow:hidden';
-speechOverlay.innerHTML='<div style="font-size:12px;color:#f5c900;margin-bottom:4px">文字起こし・画面表示版</div><div id="speech-status" role="status" style="font-size:16px;line-height:1.5">聞き取り開始待ち：撮影すると開始します。</div><div id="speech-transcript" style="font-size:22px;font-weight:bold;line-height:1.5;overflow-wrap:anywhere;margin-top:6px;white-space:pre-wrap"></div>';
+speechOverlay.innerHTML='<div style="font-size:12px;color:#f5c900;margin-bottom:4px">文字起こし・先に聞き取り版</div><div id="speech-status" role="status" style="font-size:16px;line-height:1.5">聞き取り開始待ち：撮影すると開始します。</div><div id="speech-transcript" style="font-size:22px;font-weight:bold;line-height:1.5;overflow-wrap:anywhere;margin-top:6px;white-space:pre-wrap"></div>';
 document.getElementById('camera-wrap').append(speechOverlay);
 const speechToggle=document.getElementById('live-speech');
 const speechStatus=document.getElementById('speech-status');
@@ -79,11 +79,11 @@ speechToggle.onchange=()=>{
  speechTranscript.textContent='';
 };
 let liveSpeechSession=null;
-function beginLiveSpeech(){
+function beginLiveSpeech(onReady=()=>{}){
  liveSpeechSession=null;
- if(!speechToggle.checked || !SpeechAPI)return;
+ if(!speechToggle.checked || !SpeechAPI){onReady();return;}
  speechTranscript.textContent='';
- if(!navigator.onLine){speechStatus.textContent='圏外：動画を保存します。メモは後から入力できます。';return;}
+ if(!navigator.onLine){speechStatus.textContent='圏外：動画を保存します。メモは後から入力できます。';onReady();return;}
  const session={recognition:null,text:'',ended:false,closed:false,error:false,finish:null,stopping:false,retries:0,retryTimer:null,startTimer:null};
  liveSpeechSession=session;
  function listen(){
@@ -96,6 +96,7 @@ function beginLiveSpeech(){
      if(session.closed || session.stopping)return;
      clearTimeout(session.startTimer);
      speechStatus.textContent='聞き取り中：話しかけてください。';
+     onReady();
    };
    recognition.onaudiostart=()=>{
      if(session.closed || session.stopping || session.error)return;
@@ -120,6 +121,7 @@ function beginLiveSpeech(){
    };
    recognition.onerror=event=>{
      if(session.closed)return;session.error=event.error || 'unknown';
+     onReady();
      clearTimeout(session.startTimer);
      const reasons={'not-allowed':'音声認識が許可されていません','service-not-allowed':'音声認識サービスを利用できません','audio-capture':'文字起こし側でマイクを使えません','no-speech':'文字起こし側に声が届きませんでした','network':'音声認識サービスとの通信に失敗しました','aborted':'音声認識が中断されました'};
      speechStatus.textContent=(reasons[session.error] || '文字起こしを継続できません')+'（'+session.error+'）。メモは後から入力できます。';
@@ -244,10 +246,28 @@ function drawZoom() {
 }
 drawZoom();
 const originalStartRec=startRec;
-startRec=function(){
+startRec=async function(){
+ if(recordingMode)return;
  if(!canvas.captureStream){alert('このブラウザはズーム録画に対応していません。ブラウザを更新してください。');return;}
  recordingMode=activeMode;updateModeUI();
  const cameraStream=stream;
+ recBtn.disabled=true;
+ document.getElementById('flip-btn').disabled=true;
+ document.getElementById('exit-btn').disabled=true;
+ speechToggle.disabled=true;
+ try{
+ if(speechToggle.checked && SpeechAPI && navigator.onLine){
+   // Release preview audio before asking the recognition service for the mic.
+   cameraStream.getAudioTracks().forEach(track=>{track.stop();cameraStream.removeTrack(track);});
+   await new Promise(resolve=>{
+     const timeout=setTimeout(resolve,3500);
+     beginLiveSpeech(()=>{clearTimeout(timeout);resolve();});
+   });
+ }
+ if(!cameraStream.getAudioTracks().some(track=>track.readyState==='live')){
+   const mic=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+   mic.getAudioTracks().forEach(track=>cameraStream.addTrack(track));
+ }
  recordingStream=canvas.captureStream(30);
  cameraStream.getAudioTracks().forEach(track=>recordingStream.addTrack(track.clone()));
  stream=recordingStream;
@@ -255,7 +275,15 @@ startRec=function(){
  document.getElementById('flip-btn').disabled=true;
  document.getElementById('exit-btn').disabled=true;
  speechToggle.disabled=true;
- beginLiveSpeech();
+ if(!liveSpeechSession)beginLiveSpeech();
+ }catch(error){
+   if(liveSpeechSession)await finishLiveSpeech();
+   recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null;
+   recordingMode=null;updateModeUI();recBtn.disabled=false;
+   document.getElementById('flip-btn').disabled=false;document.getElementById('exit-btn').disabled=false;
+   speechToggle.disabled=!SpeechAPI;
+   speechOverlay.hidden=false;speechStatus.textContent='録画を開始できません（'+(error.name || '不明')+'）。マイクの許可を確認してください。';
+ }
 };
 // Existing click listeners captured the old function; replace the record button listener.
 recBtn.removeEventListener('click',originalStartRec);
@@ -384,3 +412,4 @@ if('serviceWorker' in navigator && window.isSecureContext && location.protocol!=
  }).catch(()=>statusBar.textContent='オフライン起動の準備に失敗しました。オンラインで再度開いてください。');
 }
 setTimeout(syncDrive,1500);
+
