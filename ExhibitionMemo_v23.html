@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0f0f1a">
-  <title>10秒記録メモ v26</title>
+  <title>10秒記録メモ v28</title>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -231,6 +231,23 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
 #zoom-bar button{background:#222;color:#f5c500;border:1px solid #f5c500;border-radius:8px;min-width:44px;min-height:40px}
 #sync-status{text-align:center;font-size:12px;padding:6px;color:#f5c500;flex-shrink:0}
 .dialog label{width:100%;max-width:440px}.dialog input{display:block;width:100%;padding:12px;margin-top:6px}
+
+/* One clip per row; eight rows remain visible at rest. */
+.clip-row { grid-template-columns: minmax(0, 1fr); }
+.clip-card { display:grid; grid-template-columns:minmax(0,1fr) 62px 86px; align-items:center; gap:8px; width:100%; text-align:left; padding:0 0 0 10px; }
+.clip-text { font-size:14px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow-wrap:anywhere; }
+.clip-date { font-size:12px; line-height:1.35; white-space:pre-line; text-align:center; color:#d0d0dc; }
+.clip-thumb { height:100%; min-height:0; position:relative; overflow:hidden; display:block; }
+.clip-thumb .clip-play-icon { width:24px; height:24px; font-size:11px; }
+.clip-thumb .clip-badge-done { font-size:8px; top:2px; right:2px; padding:0 3px; }
+.clip-text,.clip-thumb{border:0;background:transparent;color:inherit;cursor:pointer;font-family:inherit;text-align:inherit}
+.clip-text{width:100%;padding:6px 0;min-height:40px}
+.clip-thumb{padding:0;width:100%}
+.clip-text:focus-visible,.clip-thumb:focus-visible{outline:2px solid #f5c500;outline-offset:-2px}
+#note-dialog{gap:12px;background:rgba(0,0,0,.94)}
+#note-input{width:100%;max-width:520px;min-height:140px;max-height:35dvh;padding:12px;font:16px/1.5 sans-serif;border-radius:8px;color:#111;background:#fff}
+#note-feedback{font-size:13px;color:#f5c500;max-width:520px}
+@media(max-width:360px){ .clip-card{grid-template-columns:minmax(0,1fr) 53px 72px;gap:5px;padding-left:7px}.clip-text{font-size:13px} }
 </style></head>
 <body>
 
@@ -556,7 +573,7 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
       if (!gridEl.clientHeight) return;
       const oldStride = rowHeight + 10;
       const rowPosition = rowHeight ? gridEl.scrollTop / oldStride : 0;
-      rowHeight = Math.max(1, (gridEl.clientHeight - 30) / 4);
+      rowHeight = Math.max(1, (gridEl.clientHeight - 70) / 8);
       sizeRail();
       gridEl.scrollTop = rowPosition * (rowHeight + 10);
       updateRows();
@@ -564,7 +581,7 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
 
     function sizeRail() {
       const rail = document.getElementById('clip-rail');
-      if (rail) rail.style.height = `${Math.max(0, Math.ceil(clipItems.length / 2) * (rowHeight + 10) - 10)}px`;
+      if (rail) rail.style.height = `${Math.max(0, clipItems.length * (rowHeight + 10) - 10)}px`;
     }
     function updateRows() {
       const rail = document.getElementById('clip-rail');
@@ -573,7 +590,7 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
       const firstVisible = Math.floor(gridEl.scrollTop / stride);
       const lastVisible = Math.ceil((gridEl.scrollTop + gridEl.clientHeight) / stride) - 1;
       const start = Math.max(0, firstVisible - 1);
-      const end = Math.min(Math.ceil(clipItems.length / 2) - 1, lastVisible + 1);
+      const end = Math.min(clipItems.length - 1, lastVisible + 1);
       for (const [index, row] of mountedRows) {
         if (index < start || index > end) { removeRow(row); mountedRows.delete(index); }
       }
@@ -582,7 +599,7 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
         if (!row) {
           row = document.createElement('div');
           row.className = 'clip-row';
-          row._items = clipItems.slice(index * 2, index * 2 + 2);
+          row._items = clipItems.slice(index, index + 1);
           mountedRows.set(index, row);
           rail.appendChild(row);
           row._items.forEach(item => row.appendChild(buildClipCard(item)));
@@ -591,7 +608,7 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
         row.style.height = `${rowHeight}px`;
       }
       document.getElementById('list-status').textContent =
-        `${firstVisible * 2 + 1}〜${Math.min(clipItems.length, (lastVisible + 1) * 2)} / 全${clipItems.length}件 · 上下にスワイプ`;
+        `${firstVisible + 1}〜${Math.min(clipItems.length, lastVisible + 1)} / 全${clipItems.length}件 · 上下にスワイプ`;
     }
 
     function nameForDisplay(filename) {
@@ -629,7 +646,7 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
         const rail = document.createElement('div');
         rail.id = 'clip-rail';
         gridEl.appendChild(rail);
-        rowHeight = Math.max(1, (gridEl.clientHeight - 30) / 4);
+        rowHeight = Math.max(1, (gridEl.clientHeight - 70) / 8);
         sizeRail();
         gridEl.scrollTop = savedTop;
         updateRows();
@@ -639,26 +656,32 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
     }
 
     function buildClipCard(item) {
-      const card = document.createElement('button');
-      card.type = 'button';
+      const card = document.createElement('div');
       card.className = 'clip-card';
       card.disabled = true;
       card.setAttribute('aria-label', '動画を読み込み中');
-      card.innerHTML = '<video muted playsinline preload="metadata"></video><div class="clip-play-icon">▶</div><div class="clip-badge-time">読み込み中…</div>';
+      card.innerHTML = '<button type="button" class="clip-text" disabled>読み込み中…</button><span class="clip-date"></span><button type="button" class="clip-thumb" disabled aria-label="動画を再生"><video muted playsinline preload="metadata"></video><span class="clip-play-icon">▶</span></button>';
       const generation = listGeneration;
       readClip(item.key).then(clip => {
         if (generation !== listGeneration || !card.isConnected || !clip) return;
         item.clip = clip;
         item.url = URL.createObjectURL(clip.blob);
         card.querySelector('video').src = item.url;
-        card.querySelector('.clip-badge-time').textContent = nameForDisplay(clip.filename);
+        const date = /(?:記録_)?(\d{4})(\d{2})(\d{2})_/.exec(clip.filename);
+        card.querySelector('.clip-date').textContent = date ? `${date[1]}\n${date[2]}/${date[3]}` : '日付不明';
+        const text = (clip.note ?? clip.transcript ?? '').replace(/\s+/g, ' ').trim();
+        card.querySelector('.clip-text').textContent = text ? [...text].slice(0,20).join('') + ([...text].length > 20 ? '…' : '') : '＋ メモを入力';
+        card.querySelector('.clip-text').setAttribute('aria-label',text ? 'メモを編集：'+text : 'メモを入力');
+        card.querySelectorAll('button').forEach(button=>button.disabled=false);
+        card.title = text || nameForDisplay(clip.filename);
         card.setAttribute('aria-label', nameForDisplay(clip.filename) + ' を再生');
         card.disabled = false;
         if (clip.downloaded) showDownloaded(card);
       }).catch(() => {
-        if (card.isConnected) card.querySelector('.clip-badge-time').textContent = '読み込めませんでした';
+        if (card.isConnected) card.querySelector('.clip-text').textContent = '読み込めませんでした';
       });
-      card.addEventListener('click', () => openPlayer(item, card));
+      card.querySelector('.clip-thumb').addEventListener('click', () => openPlayer(item, card));
+      card.querySelector('.clip-text').addEventListener('click', () => openClipNote(item, card));
       return card;
     }
     function showDownloaded(card) {
@@ -668,7 +691,7 @@ body[data-mode=personal] #list-header{border-color:#91d9cf}
         const badge = document.createElement('div');
         badge.className = 'clip-badge-done';
         badge.textContent = '✅ 済';
-        card.appendChild(badge);
+        card.querySelector('.clip-thumb').appendChild(badge);
       }
     }
 
