@@ -902,10 +902,32 @@
   </script>
 <script>
 // 設定画面を一度だけ開くには、アドレス末尾に ?whisper=設定 を付けて再読込する。
+// もしくは、アドレス末尾に ?whisper_url=<URL> を付けて開くと、
+// ポップアップなしでそのURLがそのまま自動的に保存される（スマホでの入力操作が不要）。
 // APIキーは端末に置かず、Whisper中継WorkerのURLだけを保存する。
 (() => {
-  const setting = new URL(location.href).searchParams.get('whisper');
-  if (setting === '設定') {
+  const params = new URL(location.href).searchParams;
+  const setting = params.get('whisper');
+  const directUrl = params.get('whisper_url');
+
+  const showBanner = (text) => {
+    const el = document.createElement('div');
+    el.textContent = text;
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#222;color:#0f0;padding:10px;font-size:14px;text-align:center;word-break:break-all;';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 6000);
+  };
+
+  if (directUrl !== null) {
+    // ポップアップを使わず、URLパラメータの値をそのまま保存する
+    if (directUrl.trim()) {
+      localStorage.setItem('whisper_worker_url', directUrl.trim());
+      showBanner('Whisper中継URLを設定しました: ' + directUrl.trim());
+    } else {
+      localStorage.removeItem('whisper_worker_url');
+      showBanner('Whisper中継URLの設定を解除しました');
+    }
+  } else if (setting === '設定') {
     const value = prompt('Whisper中継URLを入力してください（空欄で解除）', localStorage.getItem('whisper_worker_url') || '');
     if (value !== null) {
       if (value.trim()) localStorage.setItem('whisper_worker_url', value.trim());
